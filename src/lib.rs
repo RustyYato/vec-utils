@@ -4,9 +4,15 @@ use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 use std::ops::Try;
 
+
+/// Extension methods for `Vec<T>`
 pub trait VecExt: Sized {
     type T;
-
+    
+    /// Map a vector to another vector, will try and reuse the allocation if the
+    /// allocation layouts of the two types match, i.e. if 
+    /// `std::alloc::Layout::<T>::new() == std::alloc::Layout::<U>::new()`
+    /// then the allocation will be reused 
     fn map<U, F: FnMut(Self::T) -> U>(self, mut f: F) -> Vec<U> {
         use std::convert::Infallible;
 
@@ -16,8 +22,18 @@ pub trait VecExt: Sized {
         }
     }
 
+    /// Map a vector to another vector, will try and reuse the allocation if the
+    /// allocation layouts of the two types match, i.e. if 
+    /// `std::alloc::Layout::<T>::new() == std::alloc::Layout::<U>::new()`
+    /// then the allocation will be reused
+    /// 
+    /// The mapping function can be fallible, and on early return, it will drop all previous values,
+    /// and the rest of the input vector. Thre error will be returned as a `Result`
     fn try_map<U, R: Try<Ok = U>, F: FnMut(Self::T) -> R>(self, f: F) -> Result<Vec<U>, R::Error>;
 
+    /// Zip a vector to another vector and combine them, the result will be returned, 
+    /// the allocation will be reused if possible, the larger allocation of the input vectors 
+    /// will be used if all of `T`, `U`, and `V` have the same allocation layouts.
     fn zip_with<U, V, F: FnMut(Self::T, U) -> V>(self, other: Vec<U>, mut f: F) -> Vec<V> {
         use std::convert::Infallible;
 
@@ -27,12 +43,22 @@ pub trait VecExt: Sized {
         }
     }
 
+    /// Zip a vector to another vector and combine them, the result will be returned, 
+    /// the allocation will be reused if possible, the larger allocation of the input vectors 
+    /// will be used if all of `T`, `U`, and `V` have the same allocation layouts.
+    /// 
+    /// The mapping function can be fallible, and on early return, it will drop all previous values,
+    /// and the rest of the input vectors. Thre error will be returned as a `Result`
     fn try_zip_with<U, V, R: Try<Ok = V>, F: FnMut(Self::T, U) -> R>(
         self,
         other: Vec<U>,
         f: F,
     ) -> Result<Vec<V>, R::Error>;
 
+    /// Drops all of the values in the vector and
+    /// create a new vector from it if the layouts are compatible
+    /// 
+    /// if layouts are not compatible, then return `Vec::new()`
     fn drop_and_reuse<U>(self) -> Vec<U>;
 }
 
