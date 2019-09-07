@@ -4,6 +4,89 @@ use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 use std::ops::Try;
 
+use std::ptr::NonNull;
+use std::alloc::Layout;
+
+pub trait BoxExt: Sized {
+    type T: ?Sized;
+
+    fn drop_box(bx: Box<Self::T>) -> UninitBox;
+
+    fn take(bx: Box<Self::T>) -> (UninitBox, Self::T) where Self::T: Sized;
+}
+
+impl<T: ?Sized> BoxExt for Box<T> {
+    type T = T;
+
+    fn drop_box(bx: Box<Self::T>) -> UninitBox {
+        unsafe {
+            let layout = Layout::for_value::<T>(&bx);
+            let ptr = NonNull::new_unchecked(Box::into_raw(bx));
+
+            ptr.as_ptr().drop_in_place();
+
+            UninitBox {
+                ptr: ptr.cast(), layout
+            }
+        }
+    }
+
+    fn take(bx: Box<Self::T>) -> (UninitBox, Self::T) where Self::T: Sized {
+        unsafe {
+            let ptr = NonNull::new_unchecked(Box::into_raw(bx));
+
+            let value = ptr.as_ptr().read();
+
+            (
+                UninitBox {
+                    ptr: ptr.cast(), layout: Layout::new::<T>()
+                },
+                value
+            )
+        }
+    }
+}
+
+pub struct UninitBox {
+    ptr: NonNull<u8>,
+    layout: Layout
+}
+
+impl UninitBox {
+    pub fn layout(&self) -> Layout {
+        self.layout
+    }
+
+    pub fn init<T>(self, value: T) -> Box<T> {
+        assert_eq!(self.layout, Layout::new::<T>(), "Layout of UninitBox is incompatible with `T`");
+
+        let bx = ManuallyDrop::new(self);
+
+        let ptr = bx.ptr.cast::<T>().as_ptr();
+
+        unsafe {
+            ptr.write(value);
+
+            Box::from_raw(ptr)
+        }
+    }
+
+    pub fn as_ptr(&self) -> *const u8 {
+        self.ptr.as_ptr()
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut u8 {
+        self.ptr.as_ptr()
+    }
+}
+
+impl Drop for UninitBox {
+    fn drop(&mut self) {
+        unsafe {
+            std::alloc::dealloc(self.ptr.as_ptr(), self.layout)
+        }
+    }
+}
 
 /// Extension methods for `Vec<T>`
 pub trait VecExt: Sized {
@@ -66,8 +149,6 @@ impl<T> VecExt for Vec<T> {
     type T = T;
 
     fn try_map<U, R: Try<Ok = U>, F: FnMut(Self::T) -> R>(self, f: F) -> Result<Vec<U>, R::Error> {
-        use std::alloc::Layout;
-
         if Layout::new::<T>() == Layout::new::<U>() {
             let iter = MapIter {
                 init_len: 0,
@@ -86,8 +167,6 @@ impl<T> VecExt for Vec<T> {
         other: Vec<U>,
         mut f: F,
     ) -> Result<Vec<V>, R::Error> {
-        use std::alloc::Layout;
-
         match (
             Layout::new::<T>() == Layout::new::<V>(),
             Layout::new::<U>() == Layout::new::<V>(),
@@ -265,8 +344,6 @@ impl<T, U, V> ZipWithIter<T, U, V> {
         mut self,
         mut f: F,
     ) -> Result<Vec<V>, R::Error> {
-        use std::alloc::Layout;
-
         debug_assert_eq!(Layout::new::<T>(), Layout::new::<V>());
 
         // this does a pointer walk and reads from left and right in lock-step
