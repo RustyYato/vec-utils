@@ -103,6 +103,7 @@ impl UninitBox {
         }
     }
 
+    #[inline]
     pub fn init<T>(self, value: T) -> Box<T> {
         assert_eq!(self.layout, Layout::new::<T>(), "Layout of UninitBox is incompatible with `T`");
 
@@ -112,6 +113,21 @@ impl UninitBox {
 
         unsafe {
             ptr.write(value);
+
+            Box::from_raw(ptr)
+        }
+    }
+
+    #[inline]
+    pub fn init_with<T, F: FnOnce() -> T>(self, value: F) -> Box<T> {
+        assert_eq!(self.layout, Layout::new::<T>(), "Layout of UninitBox is incompatible with `T`");
+
+        let bx = ManuallyDrop::new(self);
+
+        let ptr = bx.ptr.cast::<T>().as_ptr();
+
+        unsafe {
+            ptr.write(value());
 
             Box::from_raw(ptr)
         }
