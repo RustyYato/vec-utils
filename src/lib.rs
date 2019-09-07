@@ -1,4 +1,4 @@
-#![feature(try_trait)]
+#![feature(try_trait, alloc_layout_extra)]
 
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
@@ -47,14 +47,60 @@ impl<T: ?Sized> BoxExt for Box<T> {
     }
 }
 
+/// An uninitialized piece of memory
 pub struct UninitBox {
     ptr: NonNull<u8>,
     layout: Layout
 }
 
+#[test]
+fn uninit_box() {
+    UninitBox::new::<u32>().init(0.0f32);
+    UninitBox::array::<u32>(3).init((0.0f32, 0u32, 10i32));
+    UninitBox::new::<()>().init(());
+}
+
 impl UninitBox {
+    #[inline]
     pub fn layout(&self) -> Layout {
         self.layout
+    }
+
+    #[inline]
+    pub fn new<T>() -> Self {
+        Self::from_layout(Layout::new::<T>())
+    }
+
+    #[inline]
+    pub fn array<T>(n: usize) -> Self {
+        Self::from_layout(Layout::array::<T>(n).expect("Invalid array!"))
+    }
+    
+    #[inline]
+    pub fn from_layout(layout: Layout) -> Self {
+        if layout.size() == 0 {
+            UninitBox {
+                layout,
+                ptr: unsafe {
+                    NonNull::new_unchecked(layout.align() as *mut u8)
+                }
+            }
+        } else {
+            let ptr = unsafe {
+                std::alloc::alloc(layout)
+            };
+            
+            if ptr.is_null() {
+                std::alloc::handle_alloc_error(layout)
+            } else {
+                unsafe {
+                    UninitBox {
+                        ptr: NonNull::new_unchecked(ptr),
+                        layout
+                    }
+                }
+            }
+        }
     }
 
     pub fn init<T>(self, value: T) -> Box<T> {
@@ -71,10 +117,12 @@ impl UninitBox {
         }
     }
 
+    #[inline]
     pub fn as_ptr(&self) -> *const u8 {
         self.ptr.as_ptr()
     }
 
+    #[inline]
     pub fn as_mut_ptr(&mut self) -> *mut u8 {
         self.ptr.as_ptr()
     }
