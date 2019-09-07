@@ -84,7 +84,7 @@ impl<T> VecExt for Vec<T> {
                 left: VecData::from(other),
                 right: VecData::from(self),
             }
-            .try_into_vec(move |x, y| f(y, x)),
+            .try_into_vec(move |y, x| f(x, y)),
             (false, false, _) => self
                 .into_iter()
                 .zip(other.into_iter())
@@ -97,6 +97,7 @@ impl<T> VecExt for Vec<T> {
     fn drop_and_reuse<U>(mut self) -> Vec<U> {
         self.clear();
 
+        // no more elements in the vector
         self.map(|_| unsafe { std::hint::unreachable_unchecked() })
     }
 }
@@ -120,7 +121,7 @@ struct VecData<T> {
     // the start of the vec data segment
     start: *mut T,
 
-    // the current position of the vec data segment
+    // the current position in the vec data segment
     ptr: *mut T,
 
     // the length of the vec data segment
