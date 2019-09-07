@@ -10,15 +10,15 @@ use std::alloc::Layout;
 pub trait BoxExt: Sized {
     type T: ?Sized;
 
-    fn drop_box(bx: Box<Self::T>) -> UninitBox;
+    fn drop_box(bx: Self) -> UninitBox;
 
-    fn take(bx: Box<Self::T>) -> (UninitBox, Self::T) where Self::T: Sized;
+    fn take_box(bx: Self) -> (UninitBox, Self::T) where Self::T: Sized;
 }
 
 impl<T: ?Sized> BoxExt for Box<T> {
     type T = T;
 
-    fn drop_box(bx: Box<Self::T>) -> UninitBox {
+    fn drop_box(bx: Self) -> UninitBox {
         unsafe {
             let layout = Layout::for_value::<T>(&bx);
             let ptr = NonNull::new_unchecked(Box::into_raw(bx));
@@ -31,7 +31,7 @@ impl<T: ?Sized> BoxExt for Box<T> {
         }
     }
 
-    fn take(bx: Box<Self::T>) -> (UninitBox, Self::T) where Self::T: Sized {
+    fn take_box(bx: Self) -> (UninitBox, Self::T) where Self::T: Sized {
         unsafe {
             let ptr = NonNull::new_unchecked(Box::into_raw(bx));
 
