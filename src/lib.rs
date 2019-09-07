@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 use std::ops::Try;
 
-trait VecExt: Sized {
+pub trait VecExt: Sized {
     type T;
 
     fn map<U, F: FnMut(Self::T) -> U>(self, mut f: F) -> Vec<U> {
