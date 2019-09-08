@@ -1,6 +1,6 @@
 [package]
 name = "vec-utils"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Ozaren <krishna.sd.2012@gmail.com>"]
 edition = "2018"
 

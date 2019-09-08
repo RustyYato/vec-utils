@@ -7,6 +7,23 @@ use std::ops::Try;
 use std::ptr::NonNull;
 use std::alloc::Layout;
 
+/// This allows running destructors, even if other destructors have panicked
+macro_rules! defer {
+    ($($do_work:tt)*) => {
+        let _guard = $crate::OnDrop(Some(|| { $($do_work)* }));
+    }
+}
+
+pub struct OnDrop<F: FnOnce()>(Option<F>);
+
+impl<F: FnOnce()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        self.0.take().unwrap()()
+    }
+}
+
+pub mod lazy;
+
 pub trait BoxExt: Sized {
     type T: ?Sized;
 
@@ -213,6 +230,13 @@ impl<T> VecExt for Vec<T> {
     type T = T;
 
     fn try_map<U, R: Try<Ok = U>, F: FnMut(Self::T) -> R>(self, f: F) -> Result<Vec<U>, R::Error> {
+        use lazy::{VecData as VD, VecTransform, Either};
+
+        // VD::from(self).try_map(f)
+        //     .into_writer()
+        //     .try_into_vec()
+        //     .map_err(Either::into_func)
+
         if Layout::new::<T>() == Layout::new::<U>() {
             let iter = MapIter {
                 init_len: 0,
@@ -231,6 +255,14 @@ impl<T> VecExt for Vec<T> {
         other: Vec<U>,
         mut f: F,
     ) -> Result<Vec<V>, R::Error> {
+        // use lazy::{VecData as VD, VecTransform, Either};
+
+        // VD::from(self).zip(VD::from(other))
+        //     .try_map(move |(x, y)| f(x, y))
+        //     .into_writer()
+        //     .try_into_vec()
+        //     .map_err(Either::into_func)
+        
         match (
             Layout::new::<T>() == Layout::new::<V>(),
             Layout::new::<U>() == Layout::new::<V>(),
@@ -271,21 +303,6 @@ impl<T> VecExt for Vec<T> {
     }
 }
 
-/// This allows running destructors, even if other destructors have panicked
-macro_rules! defer {
-    ($($do_work:tt)*) => {
-        let _guard = OnDrop(Some(|| { $($do_work)* }));
-    }
-}
-
-struct OnDrop<F: FnOnce()>(Option<F>);
-
-impl<F: FnOnce()> Drop for OnDrop<F> {
-    fn drop(&mut self) {
-        self.0.take().unwrap()()
-    }
-}
-
 struct VecData<T> {
     // the start of the vec data segment
     start: *mut T,
@@ -317,7 +334,7 @@ impl<T> From<Vec<T>> for VecData<T> {
     }
 }
 
-struct MapIter<T, U> {
+pub struct MapIter<T, U> {
     init_len: usize,
 
     data: VecData<T>,
