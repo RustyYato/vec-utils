@@ -1,11 +1,11 @@
-#![feature(try_trait, alloc_layout_extra)]
+#![feature(try_trait, alloc_layout_extra, test)]
 
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 use std::ops::Try;
 
-use std::ptr::NonNull;
 use std::alloc::Layout;
+use std::ptr::NonNull;
 
 /// This allows running destructors, even if other destructors have panicked
 macro_rules! defer {
@@ -22,14 +22,16 @@ impl<F: FnOnce()> Drop for OnDrop<F> {
     }
 }
 
-pub mod lazy;
+pub mod combin;
 
 pub trait BoxExt: Sized {
     type T: ?Sized;
 
     fn drop_box(bx: Self) -> UninitBox;
 
-    fn take_box(bx: Self) -> (UninitBox, Self::T) where Self::T: Sized;
+    fn take_box(bx: Self) -> (UninitBox, Self::T)
+    where
+        Self::T: Sized;
 }
 
 impl<T: ?Sized> BoxExt for Box<T> {
@@ -43,12 +45,16 @@ impl<T: ?Sized> BoxExt for Box<T> {
             ptr.as_ptr().drop_in_place();
 
             UninitBox {
-                ptr: ptr.cast(), layout
+                ptr: ptr.cast(),
+                layout,
             }
         }
     }
 
-    fn take_box(bx: Self) -> (UninitBox, Self::T) where Self::T: Sized {
+    fn take_box(bx: Self) -> (UninitBox, Self::T)
+    where
+        Self::T: Sized,
+    {
         unsafe {
             let ptr = NonNull::new_unchecked(Box::into_raw(bx));
 
@@ -56,9 +62,10 @@ impl<T: ?Sized> BoxExt for Box<T> {
 
             (
                 UninitBox {
-                    ptr: ptr.cast(), layout: Layout::new::<T>()
+                    ptr: ptr.cast(),
+                    layout: Layout::new::<T>(),
                 },
-                value
+                value,
             )
         }
     }
@@ -67,7 +74,7 @@ impl<T: ?Sized> BoxExt for Box<T> {
 /// An uninitialized piece of memory
 pub struct UninitBox {
     ptr: NonNull<u8>,
-    layout: Layout
+    layout: Layout,
 }
 
 #[test]
@@ -92,28 +99,24 @@ impl UninitBox {
     pub fn array<T>(n: usize) -> Self {
         Self::from_layout(Layout::array::<T>(n).expect("Invalid array!"))
     }
-    
+
     #[inline]
     pub fn from_layout(layout: Layout) -> Self {
         if layout.size() == 0 {
             UninitBox {
                 layout,
-                ptr: unsafe {
-                    NonNull::new_unchecked(layout.align() as *mut u8)
-                }
+                ptr: unsafe { NonNull::new_unchecked(layout.align() as *mut u8) },
             }
         } else {
-            let ptr = unsafe {
-                std::alloc::alloc(layout)
-            };
-            
+            let ptr = unsafe { std::alloc::alloc(layout) };
+
             if ptr.is_null() {
                 std::alloc::handle_alloc_error(layout)
             } else {
                 unsafe {
                     UninitBox {
                         ptr: NonNull::new_unchecked(ptr),
-                        layout
+                        layout,
                     }
                 }
             }
@@ -122,7 +125,11 @@ impl UninitBox {
 
     #[inline]
     pub fn init<T>(self, value: T) -> Box<T> {
-        assert_eq!(self.layout, Layout::new::<T>(), "Layout of UninitBox is incompatible with `T`");
+        assert_eq!(
+            self.layout,
+            Layout::new::<T>(),
+            "Layout of UninitBox is incompatible with `T`"
+        );
 
         let bx = ManuallyDrop::new(self);
 
@@ -137,7 +144,11 @@ impl UninitBox {
 
     #[inline]
     pub fn init_with<T, F: FnOnce() -> T>(self, value: F) -> Box<T> {
-        assert_eq!(self.layout, Layout::new::<T>(), "Layout of UninitBox is incompatible with `T`");
+        assert_eq!(
+            self.layout,
+            Layout::new::<T>(),
+            "Layout of UninitBox is incompatible with `T`"
+        );
 
         let bx = ManuallyDrop::new(self);
 
@@ -163,20 +174,18 @@ impl UninitBox {
 
 impl Drop for UninitBox {
     fn drop(&mut self) {
-        unsafe {
-            std::alloc::dealloc(self.ptr.as_ptr(), self.layout)
-        }
+        unsafe { std::alloc::dealloc(self.ptr.as_ptr(), self.layout) }
     }
 }
 
 /// Extension methods for `Vec<T>`
 pub trait VecExt: Sized {
     type T;
-    
+
     /// Map a vector to another vector, will try and reuse the allocation if the
-    /// allocation layouts of the two types match, i.e. if 
+    /// allocation layouts of the two types match, i.e. if
     /// `std::alloc::Layout::<T>::new() == std::alloc::Layout::<U>::new()`
-    /// then the allocation will be reused 
+    /// then the allocation will be reused
     fn map<U, F: FnMut(Self::T) -> U>(self, mut f: F) -> Vec<U> {
         use std::convert::Infallible;
 
@@ -187,16 +196,16 @@ pub trait VecExt: Sized {
     }
 
     /// Map a vector to another vector, will try and reuse the allocation if the
-    /// allocation layouts of the two types match, i.e. if 
+    /// allocation layouts of the two types match, i.e. if
     /// `std::alloc::Layout::<T>::new() == std::alloc::Layout::<U>::new()`
     /// then the allocation will be reused
-    /// 
+    ///
     /// The mapping function can be fallible, and on early return, it will drop all previous values,
     /// and the rest of the input vector. Thre error will be returned as a `Result`
     fn try_map<U, R: Try<Ok = U>, F: FnMut(Self::T) -> R>(self, f: F) -> Result<Vec<U>, R::Error>;
 
-    /// Zip a vector to another vector and combine them, the result will be returned, 
-    /// the allocation will be reused if possible, the larger allocation of the input vectors 
+    /// Zip a vector to another vector and combine them, the result will be returned,
+    /// the allocation will be reused if possible, the larger allocation of the input vectors
     /// will be used if all of `T`, `U`, and `V` have the same allocation layouts.
     fn zip_with<U, V, F: FnMut(Self::T, U) -> V>(self, other: Vec<U>, mut f: F) -> Vec<V> {
         use std::convert::Infallible;
@@ -207,10 +216,10 @@ pub trait VecExt: Sized {
         }
     }
 
-    /// Zip a vector to another vector and combine them, the result will be returned, 
-    /// the allocation will be reused if possible, the larger allocation of the input vectors 
+    /// Zip a vector to another vector and combine them, the result will be returned,
+    /// the allocation will be reused if possible, the larger allocation of the input vectors
     /// will be used if all of `T`, `U`, and `V` have the same allocation layouts.
-    /// 
+    ///
     /// The mapping function can be fallible, and on early return, it will drop all previous values,
     /// and the rest of the input vectors. Thre error will be returned as a `Result`
     fn try_zip_with<U, V, R: Try<Ok = V>, F: FnMut(Self::T, U) -> R>(
@@ -221,7 +230,7 @@ pub trait VecExt: Sized {
 
     /// Drops all of the values in the vector and
     /// create a new vector from it if the layouts are compatible
-    /// 
+    ///
     /// if layouts are not compatible, then return `Vec::new()`
     fn drop_and_reuse<U>(self) -> Vec<U>;
 }
@@ -230,13 +239,6 @@ impl<T> VecExt for Vec<T> {
     type T = T;
 
     fn try_map<U, R: Try<Ok = U>, F: FnMut(Self::T) -> R>(self, f: F) -> Result<Vec<U>, R::Error> {
-        use lazy::{VecData as VD, VecTransform, Either};
-
-        // VD::from(self).try_map(f)
-        //     .into_writer()
-        //     .try_into_vec()
-        //     .map_err(Either::into_func)
-
         if Layout::new::<T>() == Layout::new::<U>() {
             let iter = MapIter {
                 init_len: 0,
@@ -255,14 +257,6 @@ impl<T> VecExt for Vec<T> {
         other: Vec<U>,
         mut f: F,
     ) -> Result<Vec<V>, R::Error> {
-        // use lazy::{VecData as VD, VecTransform, Either};
-
-        // VD::from(self).zip(VD::from(other))
-        //     .try_map(move |(x, y)| f(x, y))
-        //     .into_writer()
-        //     .try_into_vec()
-        //     .map_err(Either::into_func)
-        
         match (
             Layout::new::<T>() == Layout::new::<V>(),
             Layout::new::<U>() == Layout::new::<V>(),

@@ -1,13 +1,12 @@
-
 // These test check if any of the functions leak or double drop elements
 
 use vec_utils::*;
 
 mod drop_counter {
-    use std::sync::RwLock;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::fmt::Debug;
     use std::any::{Any, TypeId};
+    use std::fmt::Debug;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::RwLock;
 
     pub struct DropCounter(RwLock<Vec<AtomicBool>>);
 
@@ -40,11 +39,15 @@ mod drop_counter {
     impl<T: Debug + Any> Drop for OnDrop<'_, T> {
         fn drop(&mut self) {
             if !std::thread::panicking() {
-                assert_eq!(TypeId::of::<T>(), self.2, "Incorrect type punning detected!");
+                assert_eq!(
+                    TypeId::of::<T>(),
+                    self.2,
+                    "Incorrect type punning detected!"
+                );
             }
 
             let count = self.0.read().unwrap();
-            
+
             let was_droppped = count[self.1].fetch_or(true, Ordering::Relaxed);
 
             drop(count);
@@ -63,13 +66,17 @@ mod drop_counter {
         fn drop(&mut self) {
             let count = self.0.get_mut().unwrap();
 
-            let leaked = count.iter_mut().enumerate().fold(Vec::new(), |mut leaked, (i, was_droppped)| {
-                if !*was_droppped.get_mut() {
-                    leaked.push(i);
-                }
+            let leaked =
+                count
+                    .iter_mut()
+                    .enumerate()
+                    .fold(Vec::new(), |mut leaked, (i, was_droppped)| {
+                        if !*was_droppped.get_mut() {
+                            leaked.push(i);
+                        }
 
-                leaked
-            });
+                        leaked
+                    });
 
             if !leaked.is_empty() {
                 if std::thread::panicking() {
@@ -80,7 +87,7 @@ mod drop_counter {
             }
         }
     }
-    
+
     #[test]
     fn simple() {
         let _dr = DropCounter::new();
@@ -89,14 +96,14 @@ mod drop_counter {
     #[test]
     fn create() {
         let dr = DropCounter::new();
-        
+
         dr.create(());
     }
 
     #[test]
     fn create_many() {
         let dr = DropCounter::new();
-        
+
         let _ = (0..100).map(|_| dr.create(())).collect::<Vec<_>>();
     }
 
@@ -104,7 +111,7 @@ mod drop_counter {
     #[should_panic]
     fn leak() {
         let dr = DropCounter::new();
-        
+
         std::mem::forget(dr.create("leak"));
     }
 
@@ -112,7 +119,7 @@ mod drop_counter {
     #[should_panic]
     fn double_drop() {
         let dr = DropCounter::new();
-        
+
         unsafe {
             std::ptr::drop_in_place(&mut dr.create("drop twice"));
         }
@@ -127,7 +134,7 @@ mod boxed {
     #[test]
     fn drop() {
         let dr = DropCounter::new();
-        
+
         let bx = Box::new(dr.create("drop once"));
 
         let _uninit = Box::drop_box(bx);
@@ -136,7 +143,7 @@ mod boxed {
     #[test]
     fn init() {
         let dr = DropCounter::new();
-        
+
         let bx = Box::new(dr.create("drop once"));
 
         let uninit = Box::drop_box(bx);
@@ -147,7 +154,7 @@ mod boxed {
     #[test]
     fn take() {
         let dr = DropCounter::new();
-        
+
         let bx = Box::new(dr.create("drop once"));
 
         let (_uninit, _value) = Box::take_box(bx);
@@ -156,7 +163,7 @@ mod boxed {
     #[test]
     fn take_re_init() {
         let dr = DropCounter::new();
-        
+
         let bx = Box::new(dr.create("drop once"));
 
         let (uninit, value) = Box::take_box(bx);
@@ -172,7 +179,7 @@ mod vec {
     #[test]
     fn map() {
         let dr = DropCounter::new();
-        
+
         let vec = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
 
         vec.map(|x| dr.create(*x.get()));
@@ -181,20 +188,22 @@ mod vec {
     #[test]
     fn try_map() {
         let dr = DropCounter::new();
-        
+
         let vec = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
 
         let mut counter = 0;
 
-        let err = vec.try_map(|x| {
-            counter += 1;
+        let err = vec
+            .try_map(|x| {
+                counter += 1;
 
-            if counter == 4 {
-                None
-            } else {
-                Some(dr.create(*x.get() as f32))
-            }
-        }).is_err();
+                if counter == 4 {
+                    None
+                } else {
+                    Some(dr.create(*x.get() as f32))
+                }
+            })
+            .is_err();
 
         assert!(err);
     }
@@ -202,7 +211,7 @@ mod vec {
     #[test]
     fn zip_with_same() {
         let dr = DropCounter::new();
-        
+
         let mut a = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
         let b = (20..30).map(|x| dr.create(x)).collect::<Vec<_>>();
 
@@ -218,11 +227,11 @@ mod vec {
             }
         });
     }
-    
+
     #[test]
     fn zip_with_diff() {
         let dr = DropCounter::new();
-        
+
         let a = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
         let mut b = (20..30).map(|x| dr.create(x)).collect::<Vec<_>>();
 
@@ -240,11 +249,11 @@ mod vec {
             }
         });
     }
-    
+
     #[test]
     fn try_zip_with() {
         let dr = DropCounter::new();
-        
+
         let a = (0u32..10).map(|x| dr.create(x)).collect::<Vec<_>>();
         let mut b = (20i32..30).map(|x| dr.create(x)).collect::<Vec<_>>();
 
@@ -253,16 +262,18 @@ mod vec {
         let mut flip = false;
         let mut counter = 0;
 
-        let err = a.try_zip_with(b, |x, y| {
-            flip = !flip;
-            counter += 1;
+        let err = a
+            .try_zip_with(b, |x, y| {
+                flip = !flip;
+                counter += 1;
 
-            if counter == 5 {
-                None
-            } else {
-                Some(dr.create((*x.get()) as f32 + *y.get() as f32))
-            }
-        }).is_err();
+                if counter == 5 {
+                    None
+                } else {
+                    Some(dr.create((*x.get()) as f32 + *y.get() as f32))
+                }
+            })
+            .is_err();
 
         assert!(err);
     }
