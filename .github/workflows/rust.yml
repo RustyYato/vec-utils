@@ -1,6 +1,6 @@
 name: Vec Utils
 on: [push]
-test_debug:
+jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -15,9 +15,7 @@ test_debug:
     - uses: actions/checkout@master
     - name: Run tests in debug mode
       run: cargo +nightly test --verbose
-      
-test_release:
-  test:
+  test_release:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
