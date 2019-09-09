@@ -27,10 +27,10 @@ pub trait IntoVecIter {
         let len = self.len();
 
         if self.get_cap_for::<Self::Item>().is_some() {
-            let (iter, output) = unsafe { self.split_vec_iter() };
+            let (iter, mut output) = unsafe { self.split_vec_iter() };
 
-            let output = unsafe {
-                iter.try_fold(len, output, |mut acc, x| {
+            unsafe {
+                iter.try_fold(len, &mut output, |acc, x| {
                     acc.write(x);
                     Ok(acc)
                 })?
@@ -212,7 +212,8 @@ impl<A, B: Into<Infallible>> ZipError<A, B> {
 impl<A: IntoVecIter, B: IntoVecIter> IntoVecIter for Zip<A, B> {
     type Item = (A::Item, B::Item);
     type Error = ZipError<A::Error, B::Error>;
-
+    
+    #[allow(clippy::type_complexity)]
     type SplitIter = Either<Zip<A::SplitIter, B::Iter>, Zip<A::Iter, B::SplitIter>>;
 
     type Iter = Zip<A::Iter, B::Iter>;
