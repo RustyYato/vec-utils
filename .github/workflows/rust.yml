@@ -1,6 +1,6 @@
 name: Vec Utils
 on: [push]
-jobs:
+test_debug:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -13,6 +13,21 @@ jobs:
       with:
         rust-version: ${{ matrix.rust }}
     - uses: actions/checkout@master
-    - name: Run tests
-      run_debug: cargo +nightly test --verbose
-      run_release: cargo +nightly test --release --verbose
+    - name: Run tests in debug mode
+      run: cargo +nightly test --verbose
+      
+test_release:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        rust: [nightly]
+
+    steps:
+    - uses: actions/checkout@v1
+      with:
+        rust-version: ${{ matrix.rust }}
+    - uses: actions/checkout@master
+    - name: Run tests in release mode
+      run: cargo +nightly test --release --verbose
