@@ -1,15 +1,17 @@
-name: Rust
-
+name: Vec Utils
 on: [push]
-
 jobs:
-  build:
-
-    runs-on: windows-latest
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macOS-latest]
+        rust: [nightly]
 
     steps:
     - uses: actions/checkout@v1
-    - name: Build
-      run: cargo build --verbose
+      with:
+        rust-version: ${{ matrix.rust }}
+    - uses: actions/checkout@master
     - name: Run tests
       run: cargo test --verbose
