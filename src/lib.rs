@@ -1,4 +1,4 @@
-#![feature(try_trait, alloc_layout_extra, test)]
+#![feature(try_trait, alloc_layout_extra)]
 
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
@@ -257,14 +257,15 @@ impl<T> VecExt for Vec<T> {
         other: Vec<U>,
         mut f: F,
     ) -> Result<Vec<V>, R::Error> {
+        let len = self.len().min(other.len());
         match (
             Layout::new::<T>() == Layout::new::<V>(),
             Layout::new::<U>() == Layout::new::<V>(),
             self.capacity() >= other.capacity(),
         ) {
             (true, true, true) | (true, false, _) => ZipWithIter {
-                init_len: 0,
-                min_len: self.len().min(other.len()),
+                init_len: len,
+                min_len: len,
                 drop: PhantomData,
 
                 left: VecData::from(self),
@@ -272,8 +273,8 @@ impl<T> VecExt for Vec<T> {
             }
             .try_into_vec(f),
             (true, true, false) | (false, true, _) => ZipWithIter {
-                init_len: 0,
-                min_len: self.len().min(other.len()),
+                init_len: len,
+                min_len: len,
                 drop: PhantomData,
 
                 left: VecData::from(other),
@@ -420,8 +421,6 @@ impl<T, U, V> ZipWithIter<T, U, V> {
         mut f: F,
     ) -> Result<Vec<V>, R::Error> {
         debug_assert_eq!(Layout::new::<T>(), Layout::new::<V>());
-
-        self.init_len = self.min_len;
 
         // this does a pointer walk and reads from left and right in lock-step
         // then passes those values to the function to be processed
