@@ -79,6 +79,16 @@ impl<T, S: State> Drop for Data<T, S> {
     }
 }
 
+impl<T, S: State> Data<T, S> {
+    pub fn len(&self) -> usize {
+        self.raw.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.raw.len == 0
+    }
+}
+
 impl<T> Data<T, Output> {
     pub unsafe fn write(&mut self, value: T) {
         debug_assert!(self.raw.len < self.raw.cap);
@@ -105,7 +115,9 @@ impl<T> Data<T, Init> {
     }
 
     pub fn into_output(self) -> Data<T, Output> {
-        let raw = self.into_raw();
+        let mut raw = self.into_raw();
+
+        raw.len = 0;
 
         Data {
             raw,
@@ -160,7 +172,7 @@ impl<T> IntoVecIter for Data<T, Init> {
                 raw: RawData {
                     start: raw.start as *mut U,
                     ptr: raw.ptr as *mut U,
-                    len: raw.len,
+                    len: 0,
                     cap: raw.cap,
                 },
                 _state: Output,
