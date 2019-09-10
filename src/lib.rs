@@ -14,7 +14,7 @@ macro_rules! defer {
     }
 }
 
-pub struct OnDrop<F: FnOnce()>(Option<F>);
+struct OnDrop<F: FnOnce()>(Option<F>);
 
 impl<F: FnOnce()> Drop for OnDrop<F> {
     fn drop(&mut self) {
@@ -421,18 +421,24 @@ impl<T, U, V> ZipWithIter<T, U, V> {
     ) -> Result<Vec<V>, R::Error> {
         debug_assert_eq!(Layout::new::<T>(), Layout::new::<V>());
 
+        self.init_len = self.min_len;
+
         // this does a pointer walk and reads from left and right in lock-step
         // then passes those values to the function to be processed
-        while self.init_len < self.min_len {
+        while let Some(min_len) = self.min_len.checked_sub(1) {
             unsafe {
-                let value = f(self.left.ptr.read(), self.right.ptr.read())?;
-
-                (self.left.ptr as *mut V).write(value);
+                self.min_len = min_len;
+                
+                let out = self.left.ptr as *mut V;
+                let left = self.left.ptr;
+                let right = self.right.ptr;
 
                 self.left.ptr = self.left.ptr.add(1);
                 self.right.ptr = self.right.ptr.add(1);
 
-                self.init_len += 1;
+                let value = f(left.read(), right.read())?;
+
+                out.write(value);
             }
         }
 
@@ -443,7 +449,7 @@ impl<T, U, V> ZipWithIter<T, U, V> {
 
         unsafe {
             // create the vector now, so that if we panic in drop, we don't leak it
-            output = Vec::from_raw_parts(vec.left.start as *mut V, vec.min_len, vec.left.cap);
+            output = Vec::from_raw_parts(vec.left.start as *mut V, vec.init_len, vec.left.cap);
 
             // yay for defers running in reverse order and cleaning up the
             // old vecs properly
@@ -457,14 +463,14 @@ impl<T, U, V> ZipWithIter<T, U, V> {
             defer! {
                 std::ptr::drop_in_place(std::slice::from_raw_parts_mut(
                     vec.right.ptr,
-                    vec.right.len - vec.min_len
+                    vec.right.len - vec.init_len
                 ));
             }
 
             // drop the remaining elements of the left vec
             std::ptr::drop_in_place(std::slice::from_raw_parts_mut(
                 vec.left.ptr,
-                vec.left.len - vec.min_len,
+                vec.left.len - vec.init_len
             ));
         }
 
@@ -487,17 +493,17 @@ impl<T, U, V> Drop for ZipWithIter<T, U, V> {
             //
             // They free the remaining parts of the two input vectors
             defer! {
-                std::ptr::drop_in_place(std::slice::from_raw_parts_mut(self.right.ptr.add(1), self.right.len - self.init_len - 1));
+                std::ptr::drop_in_place(std::slice::from_raw_parts_mut(self.right.ptr, self.min_len));
             }
 
             defer! {
-                std::ptr::drop_in_place(std::slice::from_raw_parts_mut(self.left.ptr.add(1), self.left.len - self.init_len - 1));
+                std::ptr::drop_in_place(std::slice::from_raw_parts_mut(self.left.ptr, self.min_len));
             }
 
             // drop the output that we already calculated
             std::ptr::drop_in_place(std::slice::from_raw_parts_mut(
                 self.left.start as *mut V,
-                self.init_len,
+                self.init_len - self.min_len - 1,
             ));
         }
     }

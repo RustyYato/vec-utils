@@ -1,7 +1,7 @@
-use super::IntoVecIter;
-use super::VecIter;
+use super::{IntoVecIter, VecIter, Either};
 
 use std::convert::Infallible;
+use std::ops::Try;
 
 pub trait State: Sized {
     unsafe fn drop<T>(v: &mut Data<T, Self>);
@@ -201,5 +201,24 @@ unsafe impl<T, S: InputState> VecIter for Data<T, S> {
         self.raw.len -= 1;
 
         Ok(value)
+    }
+
+    unsafe fn try_fold<A, R: Try<Ok = A>, F: FnMut(A, Self::Item) -> R>(
+        &mut self,
+        mut acc: A,
+        mut f: F,
+    ) -> Result<A, Either<Self::Error, R::Error>>
+    where
+        Self: Sized,
+    {
+        while let Some(len) = self.raw.len.checked_sub(1) {
+            self.raw.len = len;
+            let ptr = self.raw.ptr;
+            self.raw.ptr = self.raw.ptr.add(1);
+
+            acc = f(acc, ptr.read()).into_result().map_err(Either::Right)?;
+        }
+
+        Ok(acc)
     }
 }

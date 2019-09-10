@@ -24,6 +24,10 @@ mod drop_counter {
             len
         }
 
+        fn count_active(&self) -> usize {
+            self.0.read().unwrap().iter().filter(|x| !x.load(Ordering::Relaxed)).count()
+        }
+
         pub fn create<T: Debug + Any>(&self, value: T) -> OnDrop<'_, T> {
             let len = self.init();
             OnDrop(&self.0, len, TypeId::of::<T>(), value)
@@ -38,12 +42,13 @@ mod drop_counter {
 
     impl<T: Debug + Any> Drop for OnDrop<'_, T> {
         fn drop(&mut self) {
-            if !std::thread::panicking() {
-                assert_eq!(
-                    TypeId::of::<T>(),
-                    self.2,
-                    "Incorrect type punning detected!"
-                );
+            if TypeId::of::<T>() != self.2 {
+                if std::thread::panicking() {
+                    println!("Incorrect type punning detected!");
+                    return;
+                } else {
+                    panic!("Incorrect type punning detected!")
+                }
             }
 
             let count = self.0.read().unwrap();
