@@ -24,9 +24,9 @@ mod drop_counter {
             len
         }
 
-        fn count_active(&self) -> usize {
-            self.0.read().unwrap().iter().filter(|x| !x.load(Ordering::Relaxed)).count()
-        }
+        // fn count_active(&self) -> usize {
+        //     self.0.read().unwrap().iter().filter(|x| !x.load(Ordering::Relaxed)).count()
+        // }
 
         pub fn create<T: Debug + Any>(&self, value: T) -> OnDrop<'_, T> {
             let len = self.init();
@@ -238,9 +238,7 @@ mod vec {
         let dr = DropCounter::new();
 
         let a = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
-        let mut b = (20..30).map(|x| dr.create(x)).collect::<Vec<_>>();
-
-        b.reserve(10);
+        let mut b = (20..40).map(|x| dr.create(x)).collect::<Vec<_>>();
 
         let mut flip = false;
 
@@ -259,10 +257,8 @@ mod vec {
     fn try_zip_with() {
         let dr = DropCounter::new();
 
-        let a = (0u32..10).map(|x| dr.create(x)).collect::<Vec<_>>();
-        let mut b = (20i32..30).map(|x| dr.create(x)).collect::<Vec<_>>();
-
-        b.reserve(10);
+        let a = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
+        let mut b = (20..40).map(|x| dr.create(x)).collect::<Vec<_>>();
 
         let mut flip = false;
         let mut counter = 0;

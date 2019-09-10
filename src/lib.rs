@@ -23,6 +23,7 @@ impl<F: FnOnce()> Drop for OnDrop<F> {
 }
 
 pub mod combin;
+pub mod tuple;
 
 pub trait BoxExt: Sized {
     type T: ?Sized;
@@ -298,7 +299,7 @@ impl<T> VecExt for Vec<T> {
     }
 }
 
-struct VecData<T> {
+pub struct VecData<T> {
     // the start of the vec data segment
     start: *mut T,
 
@@ -480,6 +481,8 @@ impl<T, U, V> ZipWithIter<T, U, V> {
 impl<T, U, V> Drop for ZipWithIter<T, U, V> {
     fn drop(&mut self) {
         unsafe {
+            let len = self.init_len - self.min_len;
+
             // This will happen last
             //
             // frees the allocated memory, but does not run destructors
@@ -492,17 +495,17 @@ impl<T, U, V> Drop for ZipWithIter<T, U, V> {
             //
             // They free the remaining parts of the two input vectors
             defer! {
-                std::ptr::drop_in_place(std::slice::from_raw_parts_mut(self.right.ptr, self.min_len));
+                std::ptr::drop_in_place(std::slice::from_raw_parts_mut(self.right.ptr, self.right.len - len));
             }
 
             defer! {
-                std::ptr::drop_in_place(std::slice::from_raw_parts_mut(self.left.ptr, self.min_len));
+                std::ptr::drop_in_place(std::slice::from_raw_parts_mut(self.left.ptr, self.left.len - len));
             }
 
             // drop the output that we already calculated
             std::ptr::drop_in_place(std::slice::from_raw_parts_mut(
                 self.left.start as *mut V,
-                self.init_len - self.min_len - 1,
+                len - 1,
             ));
         }
     }
