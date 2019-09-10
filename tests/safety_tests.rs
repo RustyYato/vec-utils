@@ -212,8 +212,8 @@ mod vec {
     fn zip_with_same() {
         let dr = DropCounter::new();
 
-        let mut a = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
-        let b = (20..30).map(|x| dr.create(x)).collect::<Vec<_>>();
+        let mut a = (0i32..10).map(|x| dr.create(x)).collect::<Vec<_>>();
+        let b = (20i32..30).map(|x| dr.create(x)).collect::<Vec<_>>();
 
         let mut flip = false;
 
@@ -273,6 +273,123 @@ mod vec {
                     Some(dr.create((*x.get()) as f32 + *y.get() as f32))
                 }
             })
+            .is_err();
+
+        assert!(err);
+    }
+}
+
+mod combin {
+    #![allow(unused_assignments)]
+    use super::*;
+    use vec_utils::combin::{Data, IntoVecIter};
+
+    #[test]
+    fn map() {
+        let dr = DropCounter::new();
+
+        let vec = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
+
+        Data::from(vec).map(|x| dr.create(*x.get()));
+    }
+
+    #[test]
+    fn try_map() {
+        let dr = DropCounter::new();
+
+        let vec = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
+
+        let mut counter = 0;
+
+        let err = Data::from(vec)
+            .try_map(|x| {
+                counter += 1;
+
+                if counter == 4 {
+                    None
+                } else {
+                    Some(dr.create(*x.get() as f32))
+                }
+            })
+            .try_into_vec()
+            .is_err();
+
+        assert!(err);
+    }
+
+    #[test]
+    fn zip_with_same() {
+        let dr = DropCounter::new();
+
+        let mut a = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
+        let b = (20..30).map(|x| dr.create(x)).collect::<Vec<_>>();
+
+        let mut flip = false;
+
+        a = Data::from(a)
+            .zip(Data::from(b))
+            .map(|(x, y)| {
+                flip = !flip;
+
+                if flip {
+                    x
+                } else {
+                    y
+                }
+            })
+            .into_vec();
+    }
+
+    #[test]
+    fn zip_with_diff() {
+        let dr = DropCounter::new();
+
+        let a = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
+        let mut b = (20..30).map(|x| dr.create(x)).collect::<Vec<_>>();
+
+        b.reserve(10);
+
+        let mut flip = false;
+
+        b = Data::from(a)
+            .zip(Data::from(b))
+            .map(|(x, y)| {
+                flip = !flip;
+
+                if flip {
+                    x
+                } else {
+                    y
+                }
+            })
+            .into_vec();
+    }
+
+    #[test]
+    fn try_zip_with() {
+        let dr = DropCounter::new();
+
+        let a = (0u32..10).map(|x| dr.create(x)).collect::<Vec<_>>();
+        let mut b = (20i32..30).map(|x| dr.create(x)).collect::<Vec<_>>();
+
+        b.reserve(10);
+
+        let mut flip = false;
+        let mut counter = 0;
+
+        let err = Data::from(a)
+            .zip(Data::from(b))
+            .try_map(|(x, y)| {
+                flip = !flip;
+                counter += 1;
+
+                if counter == 5 {
+                    None
+                } else {
+                    Some(dr.create((*x.get()) as f32 + *y.get() as f32))
+                }
+            })
+            .try_into_vec()
             .is_err();
 
         assert!(err);

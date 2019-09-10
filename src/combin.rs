@@ -32,7 +32,11 @@ pub trait IntoVecIter {
             unsafe {
                 iter.try_fold(len, &mut output, |acc, x| {
                     acc.write(x);
-                    Ok(acc)
+                    Ok::<_, Infallible>(acc)
+                })
+                .map_err(|x| match x {
+                    Either::Left(x) => x,
+                    Either::Right(x) => match x {},
                 })?
             };
 
@@ -44,7 +48,11 @@ pub trait IntoVecIter {
             let output = unsafe {
                 iter.try_fold(len, output, |mut acc, x| {
                     acc.write(x);
-                    Ok(acc)
+                    Ok::<_, Infallible>(acc)
+                })
+                .map_err(|x| match x {
+                    Either::Left(x) => x,
+                    Either::Right(x) => match x {},
                 })?
             };
 
@@ -71,6 +79,14 @@ pub trait IntoVecIter {
         Map { iter: self, func }
     }
 
+    fn try_map<U, R: Try<Ok = U>, F>(self, func: F) -> TryMap<Self, F>
+    where
+        F: FnMut(Self::Item) -> R,
+        Self: Sized,
+    {
+        TryMap { iter: self, func }
+    }
+
     fn zip<U: IntoVecIter>(self, iter: U) -> Zip<Self, U>
     where
         Self: Sized,
@@ -90,18 +106,18 @@ pub unsafe trait VecIter {
 
     unsafe fn next_unchecked(&mut self) -> Result<Self::Item, Self::Error>;
 
-    unsafe fn try_fold<A, R: Try<Ok = A, Error = Self::Error>, F: FnMut(A, Self::Item) -> R>(
+    unsafe fn try_fold<A, R: Try<Ok = A>, F: FnMut(A, Self::Item) -> R>(
         mut self,
         len: usize,
         mut acc: A,
         mut f: F,
-    ) -> Result<A, Self::Error>
+    ) -> Result<A, Either<Self::Error, R::Error>>
     where
         Self: Sized,
     {
         for _ in 0..len {
-            let value = self.next_unchecked()?;
-            acc = f(acc, value).into_result()?;
+            let value = self.next_unchecked().map_err(Either::Left)?;
+            acc = f(acc, value).into_result().map_err(Either::Right)?;
         }
 
         Ok(acc)
@@ -122,12 +138,12 @@ unsafe impl<I: VecIter, F: FnMut(I::Item) -> U, U> VecIter for Map<I, F> {
         self.iter.next_unchecked().map(&mut self.func)
     }
 
-    unsafe fn try_fold<A, R: Try<Ok = A, Error = Self::Error>, G: FnMut(A, Self::Item) -> R>(
+    unsafe fn try_fold<A, R: Try<Ok = A>, G: FnMut(A, Self::Item) -> R>(
         self,
         len: usize,
         acc: A,
         mut g: G,
-    ) -> Result<A, Self::Error>
+    ) -> Result<A, Either<Self::Error, R::Error>>
     where
         Self: Sized,
     {
@@ -165,6 +181,85 @@ impl<I: IntoVecIter, F: FnMut(I::Item) -> U, U> IntoVecIter for Map<I, F> {
 
     fn into_vec_iter(self) -> Self::Iter {
         Map {
+            iter: self.iter.into_vec_iter(),
+            func: self.func,
+        }
+    }
+}
+
+pub struct TryMap<I, F> {
+    iter: I,
+    func: F,
+}
+
+#[allow(clippy::len_without_is_empty)]
+unsafe impl<I: VecIter, F: FnMut(I::Item) -> R, U, R: Try<Ok = U>> VecIter for TryMap<I, F> {
+    type Item = U;
+    type Error = Either<I::Error, R::Error>;
+
+    unsafe fn next_unchecked(&mut self) -> Result<Self::Item, Self::Error> {
+        let out = self.iter.next_unchecked().map(&mut self.func);
+
+        match out.map(R::into_result) {
+            Ok(Ok(x)) => Ok(x),
+            Ok(Err(x)) => Err(Either::Right(x)),
+            Err(x) => Err(Either::Left(x)),
+        }
+    }
+
+    unsafe fn try_fold<A, RG: Try<Ok = A>, G: FnMut(A, Self::Item) -> RG>(
+        self,
+        len: usize,
+        acc: A,
+        mut f: G,
+    ) -> Result<A, Either<Self::Error, RG::Error>>
+    where
+        Self: Sized,
+    {
+        let TryMap { iter, mut func } = self;
+
+        iter.try_fold(len, acc, |acc, x| {
+            let x = func(x).into_result().map_err(Either::Right)?;
+
+            f(acc, x).into_result().map_err(Either::Left)
+        })
+        .map_err(|x: Either<I::Error, Either<RG::Error, R::Error>>| match x {
+            Either::Left(x) => Either::Left(Either::Left(x)),
+            Either::Right(Either::Left(x)) => Either::Right(x),
+            Either::Right(Either::Right(x)) => Either::Left(Either::Right(x)),
+        })
+    }
+}
+
+#[allow(clippy::len_without_is_empty)]
+impl<I: IntoVecIter, F: FnMut(I::Item) -> R, U, R: Try<Ok = U>> IntoVecIter for TryMap<I, F> {
+    type Item = U;
+    type Error = Either<I::Error, R::Error>;
+    type SplitIter = TryMap<I::SplitIter, F>;
+    type Iter = TryMap<I::Iter, F>;
+
+    fn len(&self) -> usize {
+        self.iter.len()
+    }
+
+    fn get_cap_for<T>(&self) -> Option<usize> {
+        self.iter.get_cap_for::<T>()
+    }
+
+    unsafe fn split_vec_iter<T>(self) -> (Self::SplitIter, data::Data<T, data::Output>) {
+        let (iter, out) = self.iter.split_vec_iter();
+
+        (
+            TryMap {
+                iter,
+                func: self.func,
+            },
+            out,
+        )
+    }
+
+    fn into_vec_iter(self) -> Self::Iter {
+        TryMap {
             iter: self.iter.into_vec_iter(),
             func: self.func,
         }
@@ -212,7 +307,7 @@ impl<A, B: Into<Infallible>> ZipError<A, B> {
 impl<A: IntoVecIter, B: IntoVecIter> IntoVecIter for Zip<A, B> {
     type Item = (A::Item, B::Item);
     type Error = ZipError<A::Error, B::Error>;
-    
+
     #[allow(clippy::type_complexity)]
     type SplitIter = Either<Zip<A::SplitIter, B::Iter>, Zip<A::Iter, B::SplitIter>>;
 
@@ -314,18 +409,18 @@ unsafe impl<A: VecIter, B: VecIter<Item = A::Item, Error = A::Error>> VecIter fo
         }
     }
 
-    unsafe fn try_fold<T, R: Try<Ok = T, Error = Self::Error>, G: FnMut(T, Self::Item) -> R>(
+    unsafe fn try_fold<T, R: Try<Ok = T>, F: FnMut(T, Self::Item) -> R>(
         self,
         len: usize,
         acc: T,
-        mut g: G,
-    ) -> Result<T, Self::Error>
+        f: F,
+    ) -> Result<T, Either<Self::Error, R::Error>>
     where
         Self: Sized,
     {
         match self {
-            Either::Left(a) => a.try_fold(len, acc, move |acc, x| g(acc, x)),
-            Either::Right(b) => b.try_fold(len, acc, move |acc, x| g(acc, x)),
+            Either::Left(a) => a.try_fold(len, acc, f),
+            Either::Right(b) => b.try_fold(len, acc, f),
         }
     }
 }
