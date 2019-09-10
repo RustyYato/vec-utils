@@ -5,27 +5,13 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macOS-latest]
         rust: [nightly]
 
     steps:
-    - uses: actions/checkout@v1
+    - uses: hecrj/setup-rust-action@v1
       with:
         rust-version: ${{ matrix.rust }}
     - uses: actions/checkout@master
-    - name: Run tests in debug mode
-      run: cargo +nightly test --verbose
-  test_release:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        rust: [nightly]
-
-    steps:
-    - uses: actions/checkout@v1
-      with:
-        rust-version: ${{ matrix.rust }}
-    - uses: actions/checkout@master
-    - name: Run tests in release mode
-      run: cargo +nightly test --release --verbose
+    - name: Run tests
+      run: cargo test --verbose
