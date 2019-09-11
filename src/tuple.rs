@@ -47,32 +47,50 @@ pub fn unwrap<T: Try>(t: T) -> T::Ok where T::Error: Into<std::convert::Infallib
     }
 }
 
+/// # Safety
+/// 
+/// I make no safety guarantees about this trait for it's public api
+/// 
+/// i.e. it is only safe to use impls from this crate
 pub unsafe trait Tuple {
     type Item;
     type Data;
 
     fn into_data(self) -> Self::Data;
 
-    fn check_pick<V>() -> bool;
+    fn check_pick<V>(&self) -> bool;
 
     fn pick<V>(data: &mut Self::Data) -> Option<Output<V>>;
 
     unsafe fn pick_impl<V>(_: &mut Self::Data) -> Option<OutputData<V>>;
 
-    unsafe fn read(data: &mut Self::Data) -> Self::Item;
+    unsafe fn next(data: &mut Self::Data) -> Self::Item;
 
     unsafe fn drop_rest(data: &mut Self::Data);
 }
 
+/// An implementation detail of `Tuple::parse_impl` that must be exposed to a public api
 pub struct OutputData<T> {
     output: Output<T>,
     pick: unsafe fn(*mut ()),
     ptr: *mut ()
 }
 
+/// This trait abstracts away elements of the input stream
+/// 
+/// # Safety
+/// 
+/// * It must be valid to call `next` at least `len` times
+/// * `len <= capacity`
+/// * if `next` defers to another `T: TupleElem`, then you should not call `T::next` more than once
+///     in your own `next`
 #[allow(clippy::len_without_is_empty)]
 pub unsafe trait TupleElem {
+    /// The items yielded from this element
     type Item;
+    
+    /// The data-segment that `Output<V>` is derived from
+    /// and yields `Item`s
     type Data;
     
     /// The capacity of the data-segment
@@ -86,14 +104,44 @@ pub unsafe trait TupleElem {
     /// Convert into a raw data-segment
     fn into_data(self) -> Self::Data;
 
-    fn check_pick<V>() -> bool;
+    /// If this returns `true` then `try_pick` should return `Some`
+    fn check_pick<V>(&self) -> bool;
 
+    /// Try and create a new output data-segment, but
+    /// not commit to the data-segment.
+    /// 
+    /// # Safety
+    /// 
+    /// `try_pick` will try to create an output data-segment
+    /// but even if it creates one, it must not commit to it
+    /// until `do_pick` is called, for example, you should
+    /// still be responsible for deallocating the data-segment
+    /// if `do_pick` is *not* called
     unsafe fn try_pick<V>(data: &mut Self::Data) -> Option<Output<V>>;
 
+    /// Commit to the data-segment
+    /// 
+    /// By commiting to the data-segment, you are not allowed to deallocate
+    /// the memory buffer that `Output<V>` resides in.
+    /// 
+    /// # Safety
+    /// 
+    /// * `try_pick` must have been called and returned `Some` before `do_pick```
     unsafe fn do_pick(_: &mut Self::Data);
 
-    unsafe fn read(data: &mut Self::Data) -> Self::Item;
+    /// Get the next element
+    /// 
+    /// # Safety
+    /// 
+    /// This must be called *at most* `len` times
+    unsafe fn next(data: &mut Self::Data) -> Self::Item;
 
+    /// Drop the rest of the buffer and deallocate
+    /// if `do_pick` was never called
+    /// 
+    /// # Safety
+    /// 
+    /// This function should only be called once
     unsafe fn drop_rest(data: &mut Self::Data);
 }
 
@@ -122,7 +170,7 @@ unsafe impl<A> TupleElem for Vec<A> {
     }
 
     #[inline]
-    fn check_pick<V>() -> bool {
+    fn check_pick<V>(&self) -> bool {
         Layout::new::<A>() == Layout::new::<V>()
     }
 
@@ -141,7 +189,7 @@ unsafe impl<A> TupleElem for Vec<A> {
     }
 
     #[inline]
-    unsafe fn read(data: &mut Self::Data) -> Self::Item {
+    unsafe fn next(data: &mut Self::Data) -> Self::Item {
         let ptr = data.ptr;
         data.ptr = data.ptr.add(1);
         ptr.read()
@@ -171,8 +219,8 @@ unsafe impl<A: TupleElem> Tuple for (A,) {
     }
 
     #[inline]
-    fn check_pick<V>() -> bool {
-        A::check_pick::<V>()
+    fn check_pick<V>(&self) -> bool {
+        self.0.check_pick::<V>()
     }
 
     #[inline]
@@ -196,8 +244,8 @@ unsafe impl<A: TupleElem> Tuple for (A,) {
     }
     
     #[inline]
-    unsafe fn read(data: &mut Self::Data) -> Self::Item {
-        A::read(data)
+    unsafe fn next(data: &mut Self::Data) -> Self::Item {
+        A::next(data)
     }
 
     #[inline]
@@ -216,8 +264,8 @@ unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
     }
 
     #[inline]
-    fn check_pick<V>() -> bool {
-        A::check_pick::<V>() || T::check_pick::<V>()
+    fn check_pick<V>(&self) -> bool {
+        self.0.check_pick::<V>() || self.1.check_pick::<V>()
     }
 
     #[inline]
@@ -254,8 +302,8 @@ unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
     }
 
     #[inline]
-    unsafe fn read((vec, rest): &mut Self::Data) -> Self::Item {
-        (A::read(vec), T::read(rest))
+    unsafe fn next((vec, rest): &mut Self::Data) -> Self::Item {
+        (A::next(vec), T::next(rest))
     }
 
     #[inline]
@@ -314,9 +362,6 @@ pub struct ZipWithIter<V, In: Tuple> {
     out: Output<V>,
 
     // We will only read from this buffer
-    //
-    // I considered using `std::vec::IntoIter`, but that lead to worse code
-    // because LLVM wasn't able to elide the bounds check on the iterator
     input: In::Data,
 
     // the length of the output that has been written to
@@ -326,7 +371,7 @@ pub struct ZipWithIter<V, In: Tuple> {
 }
 
 pub fn try_zip_with<R: Try, In: InitTuple>(input: In, f: impl FnMut(In::Item) -> R) -> Result<Vec<R::Ok>, R::Error> {
-    if In::check_pick::<R::Ok>() {
+    if input.check_pick::<R::Ok>() {
         let len = input.min_len();
         let mut input = input.into_data();
 
@@ -357,7 +402,7 @@ impl<V, In: Tuple> ZipWithIter<V, In> {
             while let Some(min_len) = self.min_len.checked_sub(1) {
                 self.min_len = min_len;
                 
-                let input = In::read(&mut self.input);
+                let input = In::next(&mut self.input);
                 
                 self.out.ptr.write(f(input)?);
                 self.out.ptr = self.out.ptr.add(1);
