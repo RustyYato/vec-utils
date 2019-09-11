@@ -5,7 +5,7 @@ pub use std::ops::Try;
 
 #[macro_export]
 macro_rules! try_zip_with {
-    ($($vec:expr),* $(,)? => |$($i:ident),* $(,)?| $($work:tt)*) => {{
+    (($($vec:expr),+ $(,)?), |$($i:ident),+ $(,)?| $($work:tt)*) => {{
         $(let $i = $vec;)*
         
         $crate::tuple::try_zip_with(
@@ -17,9 +17,9 @@ macro_rules! try_zip_with {
 
 #[macro_export]
 macro_rules! zip_with {
-    ($($vec:expr),+ $(,)? => |$($i:ident),+ $(,)?| $($work:tt)*) => {{
+    (($($vec:expr),+ $(,)?), |$($i:ident),+ $(,)?| $($work:tt)*) => {{
         $crate::tuple::unwrap($crate::try_zip_with!(
-            $($vec),+ => |$($i),+|
+            ($($vec),+), |$($i),+|
             Ok::<_, std::convert::Infallible>($($work)*)
         ))
     }};

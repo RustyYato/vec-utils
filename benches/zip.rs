@@ -43,7 +43,7 @@ fn bench_zip_macro(b: &mut Bencher) {
         for _ in 0..1000 {
             black_box(
                 vec_utils::zip_with! {
-                    x.clone(), y.clone() => |x, y| f64::from(x) + y
+                    (x.clone(), y.clone()), |x, y| f64::from(x) + y
                 }
             );
         }
