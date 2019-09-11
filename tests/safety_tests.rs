@@ -10,7 +10,13 @@ mod drop_counter {
 
     pub struct DropCounter(RwLock<Vec<AtomicBool>>);
 
-    pub struct OnDrop<'a, T: Debug + Any>(&'a RwLock<Vec<AtomicBool>>, usize, TypeId, T);
+    pub struct OnDrop<'a, T: Debug + Any>(&'a DropCounter, usize, TypeId, T);
+
+    impl<'a, T: Debug + Any + Clone> Clone for OnDrop<'a, T> {
+        fn clone(&self) -> Self {
+            self.0.create(self.3.clone())
+        }
+    }
 
     impl DropCounter {
         pub fn new() -> Self {
@@ -30,7 +36,7 @@ mod drop_counter {
 
         pub fn create<T: Debug + Any>(&self, value: T) -> OnDrop<'_, T> {
             let len = self.init();
-            OnDrop(&self.0, len, TypeId::of::<T>(), value)
+            OnDrop(&self, len, TypeId::of::<T>(), value)
         }
     }
 
@@ -44,14 +50,14 @@ mod drop_counter {
         fn drop(&mut self) {
             if TypeId::of::<T>() != self.2 {
                 if std::thread::panicking() {
-                    println!("Incorrect type punning detected!");
+                    println!("Incorrect type punning detected! {:?}", self.1);
                     return;
                 } else {
-                    panic!("Incorrect type punning detected!")
+                    panic!("Incorrect type punning detected! {:?}", self.1)
                 }
             }
 
-            let count = self.0.read().unwrap();
+            let count = (self.0).0.read().unwrap();
 
             let was_droppped = count[self.1].fetch_or(true, Ordering::Relaxed);
 
@@ -189,7 +195,7 @@ mod vec {
 
         vec.map(|x| dr.create(*x.get()));
     }
-
+    
     #[test]
     fn try_map() {
         let dr = DropCounter::new();
@@ -202,7 +208,7 @@ mod vec {
             .try_map(|x| {
                 counter += 1;
 
-                if counter == 4 {
+                if counter == 3 {
                     None
                 } else {
                     Some(dr.create(*x.get() as f32))
@@ -258,7 +264,7 @@ mod vec {
         let dr = DropCounter::new();
 
         let a = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
-        let mut b = (20..40).map(|x| dr.create(x)).collect::<Vec<_>>();
+        let b = (20..40).map(|x| dr.create(x)).collect::<Vec<_>>();
 
         let mut flip = false;
         let mut counter = 0;

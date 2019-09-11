@@ -1,4 +1,4 @@
-#![feature(try_trait, alloc_layout_extra)]
+#![feature(try_trait, alloc_layout_extra, ptr_offset_from)]
 
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
@@ -240,10 +240,12 @@ impl<T> VecExt for Vec<T> {
     type T = T;
 
     fn try_map<U, R: Try<Ok = U>, F: FnMut(Self::T) -> R>(self, f: F) -> Result<Vec<U>, R::Error> {
+        // try_zip_with! { self => |x| { f(x) } }
+        
         if Layout::new::<T>() == Layout::new::<U>() {
             let iter = MapIter {
                 init_len: 0,
-                data: VecData::from(self),
+                data: Input::from(self),
                 drop: PhantomData,
             };
 
@@ -258,6 +260,8 @@ impl<T> VecExt for Vec<T> {
         other: Vec<U>,
         mut f: F,
     ) -> Result<Vec<V>, R::Error> {
+        // try_zip_with! { self, other => |x, y| { f(x, y) } }
+
         let len = self.len().min(other.len());
         match (
             Layout::new::<T>() == Layout::new::<V>(),
@@ -269,8 +273,8 @@ impl<T> VecExt for Vec<T> {
                 min_len: len,
                 drop: PhantomData,
 
-                left: VecData::from(self),
-                right: VecData::from(other),
+                left: Input::from(self),
+                right: Input::from(other),
             }
             .try_into_vec(f),
             (true, true, false) | (false, true, _) => ZipWithIter {
@@ -278,8 +282,8 @@ impl<T> VecExt for Vec<T> {
                 min_len: len,
                 drop: PhantomData,
 
-                left: VecData::from(other),
-                right: VecData::from(self),
+                left: Input::from(other),
+                right: Input::from(self),
             }
             .try_into_vec(move |y, x| f(x, y)),
             (false, false, _) => self
@@ -299,7 +303,7 @@ impl<T> VecExt for Vec<T> {
     }
 }
 
-pub struct VecData<T> {
+pub struct Input<T> {
     // the start of the vec data segment
     start: *mut T,
 
@@ -312,12 +316,33 @@ pub struct VecData<T> {
     // the capacity of the vec data segment
     cap: usize,
 
+    drop_alloc: bool,
+
     drop: PhantomData<T>,
 }
 
-impl<T> From<Vec<T>> for VecData<T> {
+pub struct Output<T> {
+    start: *mut T,
+    ptr: *mut T,
+    cap: usize,
+    drop: PhantomData<T>,
+}
+
+impl<T> Output<T> {
+    pub unsafe fn new(start: *mut T, cap: usize) -> Self {
+        Self {
+            start,
+            ptr: start,
+            cap,
+            drop:PhantomData
+        }
+    }
+}
+
+impl<T> From<Vec<T>> for Input<T> {
     fn from(vec: Vec<T>) -> Self {
         let mut vec = ManuallyDrop::new(vec);
+
         let ptr = vec.as_mut_ptr();
 
         Self {
@@ -325,6 +350,7 @@ impl<T> From<Vec<T>> for VecData<T> {
             ptr,
             len: vec.len(),
             cap: vec.capacity(),
+            drop_alloc: true,
             drop: PhantomData,
         }
     }
@@ -333,7 +359,7 @@ impl<T> From<Vec<T>> for VecData<T> {
 pub struct MapIter<T, U> {
     init_len: usize,
 
-    data: VecData<T>,
+    data: Input<T>,
 
     // for drop check
     drop: PhantomData<U>,
@@ -399,13 +425,13 @@ impl<T, U> Drop for MapIter<T, U> {
 struct ZipWithIter<T, U, V> {
     // This left buffer is the one that will be reused
     // to write the output into
-    left: VecData<T>,
+    left: Input<T>,
 
     // We will only read from this buffer
     //
     // I considered using `std::vec::IntoIter`, but that lead to worse code
     // because LLVM wasn't able to elide the bounds check on the iterator
-    right: VecData<U>,
+    right: Input<U>,
 
     // the length of the output that has been written to
     init_len: usize,
