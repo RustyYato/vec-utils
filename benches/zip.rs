@@ -5,8 +5,8 @@ extern crate test;
 use test::{black_box, Bencher};
 
 use vec_utils::{
+    combin::{Data, IntoVecIter},
     VecExt,
-    combin::{IntoVecIter, Data}
 };
 
 #[bench]
@@ -41,11 +41,9 @@ fn bench_zip_macro(b: &mut Bencher) {
 
     b.iter(|| {
         for _ in 0..1000 {
-            black_box(
-                vec_utils::zip_with! {
-                    (x.clone(), y.clone()), |x, y| f64::from(x) + y
-                }
-            );
+            black_box(vec_utils::zip_with! {
+                (x.clone(), y.clone()), |x, y| f64::from(x) + y
+            });
         }
     })
 }

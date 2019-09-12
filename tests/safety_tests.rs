@@ -195,7 +195,7 @@ mod vec {
 
         vec.map(|x| dr.create(*x.get()));
     }
-    
+
     #[test]
     fn try_map() {
         let dr = DropCounter::new();
@@ -289,7 +289,7 @@ mod vec {
 mod tuple {
     #![allow(unused_assignments)]
     use super::*;
-    use crate::{zip_with, try_zip_with};
+    use crate::{try_zip_with, zip_with};
 
     #[test]
     fn map() {
@@ -299,7 +299,7 @@ mod tuple {
 
         zip_with!((vec), |x| dr.create(*x.get()));
     }
-    
+
     #[test]
     fn try_map() {
         let dr = DropCounter::new();
@@ -372,16 +372,16 @@ mod tuple {
         let mut counter = 0;
 
         let err = try_zip_with!((a, b), |x, y| {
-                flip = !flip;
-                counter += 1;
+            flip = !flip;
+            counter += 1;
 
-                if counter == 5 {
-                    None
-                } else {
-                    Some(dr.create((*x.get()) as f32 + *y.get() as f32))
-                }
-            })
-            .is_err();
+            if counter == 5 {
+                None
+            } else {
+                Some(dr.create((*x.get()) as f32 + *y.get() as f32))
+            }
+        })
+        .is_err();
 
         assert!(err);
     }

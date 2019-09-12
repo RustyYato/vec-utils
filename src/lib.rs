@@ -241,7 +241,7 @@ impl<T> VecExt for Vec<T> {
 
     fn try_map<U, R: Try<Ok = U>, F: FnMut(Self::T) -> R>(self, f: F) -> Result<Vec<U>, R::Error> {
         // try_zip_with! { self => |x| { f(x) } }
-        
+
         if Layout::new::<T>() == Layout::new::<U>() {
             let iter = MapIter {
                 init_len: 0,
@@ -323,7 +323,7 @@ pub struct Input<T> {
 pub struct Output<T> {
     // the start of the vec data segment
     start: *mut T,
-    
+
     // the current position in the vec data segment
     ptr: *mut T,
 
@@ -338,7 +338,7 @@ impl<T> Output<T> {
             start,
             ptr: start,
             cap,
-            drop:PhantomData
+            drop: PhantomData,
         }
     }
 }
@@ -458,7 +458,7 @@ impl<T, U, V> ZipWithIter<T, U, V> {
         while let Some(min_len) = self.min_len.checked_sub(1) {
             unsafe {
                 self.min_len = min_len;
-                
+
                 let out = self.left.ptr as *mut V;
                 let left = self.left.ptr;
                 let right = self.right.ptr;
@@ -500,7 +500,7 @@ impl<T, U, V> ZipWithIter<T, U, V> {
             // drop the remaining elements of the left vec
             std::ptr::drop_in_place(std::slice::from_raw_parts_mut(
                 vec.left.ptr,
-                vec.left.len - vec.init_len
+                vec.left.len - vec.init_len,
             ));
         }
 

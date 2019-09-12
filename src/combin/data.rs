@@ -1,4 +1,4 @@
-use super::{IntoVecIter, VecIter, Either};
+use super::{Either, IntoVecIter, VecIter};
 
 use std::convert::Infallible;
 use std::ops::Try;

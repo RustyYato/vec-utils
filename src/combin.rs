@@ -32,7 +32,7 @@ pub trait IntoVecIter {
             let len = self.len();
             let iter = self.into_vec_iter();
             let output = data::Data::from(Vec::with_capacity(len)).into_output();
-            
+
             (Either::Right(iter), output)
         };
 
@@ -83,7 +83,11 @@ pub trait IntoVecIter {
     where
         Self: Sized,
     {
-        Zip { a: self, b: iter, min_len: 0 }
+        Zip {
+            a: self,
+            b: iter,
+            min_len: 0,
+        }
     }
 }
 
@@ -251,7 +255,7 @@ impl<I: IntoVecIter, F: FnMut(I::Item) -> R, U, R: Try<Ok = U>> IntoVecIter for 
 pub struct Zip<A, B> {
     a: A,
     b: B,
-    min_len: usize
+    min_len: usize,
 }
 
 impl<A: IntoVecIter, B: IntoVecIter> Zip<A, B> {
@@ -291,7 +295,8 @@ impl<A: IntoVecIter, B: IntoVecIter> IntoVecIter for Zip<A, B> {
 
                     (
                         Either::Left(Zip {
-                            a, min_len,
+                            a,
+                            min_len,
                             b: self.b.into_vec_iter(),
                         }),
                         output,
@@ -302,7 +307,8 @@ impl<A: IntoVecIter, B: IntoVecIter> IntoVecIter for Zip<A, B> {
                     (
                         Either::Right(Zip {
                             a: self.a.into_vec_iter(),
-                            b, min_len,
+                            b,
+                            min_len,
                         }),
                         output,
                     )
@@ -313,7 +319,8 @@ impl<A: IntoVecIter, B: IntoVecIter> IntoVecIter for Zip<A, B> {
 
                 (
                     Either::Left(Zip {
-                        a, min_len,
+                        a,
+                        min_len,
                         b: self.b.into_vec_iter(),
                     }),
                     output,
@@ -325,7 +332,8 @@ impl<A: IntoVecIter, B: IntoVecIter> IntoVecIter for Zip<A, B> {
                 (
                     Either::Right(Zip {
                         a: self.a.into_vec_iter(),
-                        b, min_len,
+                        b,
+                        min_len,
                     }),
                     output,
                 )
@@ -362,7 +370,9 @@ unsafe impl<A: VecIter, B: VecIter> VecIter for Zip<A, B> {
         while let Some(min_len) = self.min_len.checked_sub(1) {
             self.min_len = min_len;
 
-            acc = f(acc, self.next_unchecked().map_err(Either::Left)?).into_result().map_err(Either::Right)?;
+            acc = f(acc, self.next_unchecked().map_err(Either::Left)?)
+                .into_result()
+                .map_err(Either::Right)?;
         }
 
         Ok(acc)
