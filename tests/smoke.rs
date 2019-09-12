@@ -81,3 +81,68 @@ fn zip() {
 
     assert_eq!(vec, [0.0, 2.0, 4.0, 6.0]);
 }
+
+#[test]
+fn try_zip() {
+    let a = vec![0.0f32, 1.0, 2.0, 3.0];
+    let b = vec![0.0f32, 1.0, 2.0, 3.0];
+
+    let vec = try_zip_with!((a, b), |a, b| if a + b < 10.0 {
+        Ok(a + b)
+    } else {
+        Err(())
+    });
+
+    assert_eq!(vec.unwrap(), [0.0, 2.0, 4.0, 6.0]);
+
+    let a = vec![0.0f32, 1.0, 2.0, 3.0];
+    let b = vec![0.0f32, 1.0, 2.0, 3.0];
+
+    let vec = try_zip_with!((a, b), |a, b| if a + b < 5.0 { Ok(a + b) } else { Err(()) });
+
+    assert_eq!(vec, Err(()));
+
+    let a = vec![0.0f64, 1.0, 2.0, 3.0];
+    let b = vec![0.0f32, 1.0, 2.0, 3.0];
+
+    let vec = try_zip_with!((a, b), |a, b| if a + f64::from(b) < 10.0 {
+        Ok(a + f64::from(b))
+    } else {
+        Err(())
+    });
+
+    assert_eq!(vec.unwrap(), [0.0, 2.0, 4.0, 6.0]);
+
+    let a = vec![0.0f64, 1.0, 2.0, 3.0];
+    let b = vec![0.0f32, 1.0, 2.0, 3.0];
+
+    let vec = try_zip_with!((a, b), |a, b| if a + f64::from(b) < 5.0 {
+        Ok(a + f64::from(b))
+    } else {
+        Err(())
+    });
+
+    assert_eq!(vec, Err(()));
+
+    let a = vec![0.0f32, 1.0, 2.0, 3.0];
+    let b = vec![0.0f64, 1.0, 2.0, 3.0];
+
+    let vec = try_zip_with!((a, b), |a, b| if f64::from(a) + b < 10.0 {
+        Ok(f64::from(a) + b)
+    } else {
+        Err(())
+    });
+
+    assert_eq!(vec.unwrap(), [0.0, 2.0, 4.0, 6.0]);
+
+    let a = vec![0.0f32, 1.0, 2.0, 3.0];
+    let b = vec![0.0f64, 1.0, 2.0, 3.0];
+
+    let vec = try_zip_with!((a, b), |a, b| if f64::from(a) + b < 5.0 {
+        Ok(f64::from(a) + b)
+    } else {
+        Err(())
+    });
+
+    assert_eq!(vec, Err(()));
+}
