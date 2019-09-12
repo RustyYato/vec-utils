@@ -138,6 +138,57 @@ unsafe fn do_pick_erased<A: TupleElem>(ptr: *mut ()) {
     A::do_pick(&mut *(ptr as *mut A::Data))
 }
 
+unsafe impl<A: TupleElem> TupleElem for (A,) {
+    type Item = A::Item;
+    type Data = A::Data;
+    type Iter = A::Iter;
+
+    #[inline(always)]
+    fn capacity(data: &Self::Data) -> usize {
+        A::capacity(data)
+    }
+
+    #[inline(always)]
+    fn len(&self) -> usize {
+        A::len(&self.0)
+    }
+
+    #[inline]
+    fn into_data(self) -> Self::Data {
+        self.0.into_data()
+    }
+
+    #[inline]
+    fn into_iter(self) -> Self::Iter {
+        self.0.into_iter()
+    }
+
+    #[inline]
+    fn check_pick<V>(&self) -> bool {
+        self.0.check_pick::<V>()
+    }
+
+    #[inline]
+    unsafe fn try_pick<V>(data: &mut Self::Data) -> Option<Output<V>> {
+        A::try_pick(data)
+    }
+
+    #[inline]
+    unsafe fn do_pick(data: &mut Self::Data) {
+        A::do_pick(data)
+    }
+
+    #[inline]
+    unsafe fn next(data: &mut Self::Data) -> Self::Item {
+        A::next(data)
+    }
+
+    #[inline]
+    unsafe fn drop_rest(data: &mut Self::Data, len: usize) {
+        A::drop_rest(data, len)
+    }
+}
+
 unsafe impl<A> TupleElem for Vec<A> {
     type Item = A;
     type Data = Input<A>;

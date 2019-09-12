@@ -21,7 +21,7 @@ fn map() {
 fn map_combin() {
     let vec = vec![0.0f32, 1.0, 2.0, 3.0];
 
-    let vec: Vec<u32> = zip_with!((vec), |x| unsafe { std::mem::transmute(x) });
+    let vec: Vec<u32> = zip_with!(vec, |x| unsafe { std::mem::transmute(x) });
 
     assert_eq!(
         vec,

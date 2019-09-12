@@ -297,7 +297,7 @@ mod tuple {
 
         let vec = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
 
-        zip_with!((vec), |x| dr.create(*x.get()));
+        zip_with!(vec, |x| dr.create(*x.get()));
     }
 
     #[test]
@@ -308,7 +308,7 @@ mod tuple {
 
         let mut counter = 0;
 
-        let err = try_zip_with!((vec), |x| {
+        let err = try_zip_with!(vec, |x| {
             counter += 1;
 
             if counter == 3 {
@@ -426,7 +426,7 @@ mod tuple {
             use crate::try_zip_with;
             let vec_1 = vec![OnDrop::new(); 2];
             let value = Ok::<(), ()>(());
-            let _ = try_zip_with!((vec_1), |_x| value);
+            let _ = try_zip_with!(vec_1, |_x| value);
         }
 
         unsafe {
