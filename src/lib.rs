@@ -1,4 +1,4 @@
-#![feature(try_trait, alloc_layout_extra, ptr_offset_from)]
+#![feature(try_trait, alloc_layout_extra)]
 
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
