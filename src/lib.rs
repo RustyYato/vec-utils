@@ -317,13 +317,17 @@ pub struct Input<T> {
     cap: usize,
 
     drop_alloc: bool,
-
     drop: PhantomData<T>,
 }
 
 pub struct Output<T> {
+    // the start of the vec data segment
     start: *mut T,
+    
+    // the current position in the vec data segment
     ptr: *mut T,
+
+    // the capacity of the vec data segment
     cap: usize,
     drop: PhantomData<T>,
 }
