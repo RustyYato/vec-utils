@@ -385,6 +385,55 @@ mod tuple {
 
         assert!(err);
     }
+
+    #[test]
+    pub fn zero_sized() {
+        static mut DROP_COUNT: usize = 0;
+        static mut DOUBLE_DROP: bool = false;
+        
+        struct OnDrop;
+
+        impl OnDrop {
+            fn new() -> Self {
+                unsafe {
+                    DROP_COUNT += 1;
+                }
+
+                Self
+            }
+        }
+
+        impl Clone for OnDrop {
+            fn clone(&self) -> Self {
+                Self::new()
+            }
+        }
+
+        impl Drop for OnDrop {
+            fn drop(&mut self) {
+                unsafe {
+                    if DROP_COUNT == 0 {
+                        DOUBLE_DROP = true;
+                        println!("Double drop detected")
+                    } else {
+                        DROP_COUNT -= 1;
+                    }
+                }
+            }
+        }
+
+        {
+            use crate::try_zip_with;
+            let vec_1 = vec![OnDrop::new(); 2];
+            let value = Ok::<(), ()>(());
+            let _ = try_zip_with!((vec_1), |_x| value);
+        }
+
+        unsafe {
+            assert!(!DOUBLE_DROP);
+            assert_eq!(DROP_COUNT, 0);
+        }
+    }
 }
 
 mod combin {

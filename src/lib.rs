@@ -303,6 +303,8 @@ impl<T> VecExt for Vec<T> {
     }
 }
 
+/// A type taht contains useful meta-data about a
+/// the Vec<_> that it was created from
 pub struct Input<T> {
     // the start of the vec data segment
     start: *mut T,
@@ -320,6 +322,9 @@ pub struct Input<T> {
     drop: PhantomData<T>,
 }
 
+/// An write only buffer that may overlap with some input buffer
+/// this allows reuse of that input buffer to turn it into a
+/// `Vec<_>` inside of `tuple::try_into_vec`
 pub struct Output<T> {
     // the start of the vec data segment
     start: *mut T,
@@ -360,7 +365,7 @@ impl<T> From<Vec<T>> for Input<T> {
     }
 }
 
-pub struct MapIter<T, U> {
+struct MapIter<T, U> {
     init_len: usize,
 
     data: Input<T>,

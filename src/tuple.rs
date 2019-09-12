@@ -2,6 +2,47 @@ use super::{Input, Output};
 
 pub use std::ops::Try;
 
+/// A macro to give syntactic sugar for `tuple::try_zip_with`
+/// 
+/// This allows combining multiple vectors into a one with short-circuiting
+/// on the failure case
+/// 
+/// # Usage
+/// 
+/// ```rust
+/// # use vec_utils::try_zip_with;
+/// # let vec_1: Vec<()> = Vec::new();
+/// # let vec_2: Vec<()> = Vec::new();
+/// # let vec_n: Vec<()> = Vec::new();
+/// # let value = Ok::<(), ()>(());
+/// try_zip_with!((vec_1, vec_2, vec_n), |x1, x2, xn| value);
+/// ```
+/// `value` can be any expression using `x1`, `x2`, `xn` or any other values from the environment
+/// 
+/// Note that `|x1, x2, xn| value` is not a closure, but some syntax that looks like a closure. In particular you
+/// cannot use general patterns for the parameters, only identifiers are allowed. Second, you can't pass in a closure
+/// like so,
+/// 
+/// ```rust compile_fail
+/// # use vec_utils::try_zip_with;
+/// # let vec_1: Vec<()> = Vec::new();
+/// # let vec_2: Vec<()> = Vec::new();
+/// # let vec_n: Vec<()> = Vec::new();
+/// # let value = Ok::<(), ()>(());
+/// try_zip_with!((vec_1, vec_2, vec_n), closure)
+/// ```
+/// 
+/// But it will work just like a move closure in all other cases.
+/// 
+/// The first call will desugar to
+/// 
+/// ```rust
+/// # let vec_1: Vec<()> = Vec::new();
+/// # let vec_2: Vec<()> = Vec::new();
+/// # let vec_n: Vec<()> = Vec::new();
+/// # let value = Ok::<(), ()>(());
+/// vec_utils::tuple::try_zip_with((vec_1, (vec_2, (vec_n,))), move |(x1, (x2, xn))| value);
+/// ```
 #[macro_export]
 macro_rules! try_zip_with {
     (($($vec:expr),+ $(,)?), |$($i:ident),+ $(,)?| $($work:tt)*) => {{
@@ -14,6 +55,7 @@ macro_rules! try_zip_with {
     }};
 }
 
+/// A wrapper around `try_zip_with` for infallible mapping
 #[macro_export]
 macro_rules! zip_with {
     (($($vec:expr),+ $(,)?), |$($i:ident),+ $(,)?| $($work:tt)*) => {{
@@ -49,6 +91,11 @@ where
     }
 }
 
+/// A specialized const-list for emulating varaidic generics
+/// 
+/// To overload what elements can go in this tuple, please use the
+/// [`TupleElem`](trait.TupleElem.html) trait
+/// 
 /// # Safety
 ///
 /// I make no safety guarantees about this trait for it's public api
@@ -73,7 +120,7 @@ pub unsafe trait Tuple {
 
     unsafe fn next(data: &mut Self::Data) -> Self::Item;
 
-    unsafe fn drop_rest(data: &mut Self::Data);
+    unsafe fn drop_rest(data: &mut Self::Data, len: usize);
 }
 
 /// An implementation detail of `Tuple::parse_impl` that must be exposed to a public api
@@ -155,7 +202,7 @@ pub unsafe trait TupleElem {
     /// # Safety
     ///
     /// This function should only be called once
-    unsafe fn drop_rest(data: &mut Self::Data);
+    unsafe fn drop_rest(data: &mut Self::Data, len: usize);
 }
 
 #[inline]
@@ -215,16 +262,14 @@ unsafe impl<A> TupleElem for Vec<A> {
     }
 
     #[inline]
-    unsafe fn drop_rest(data: &mut Self::Data) {
+    unsafe fn drop_rest(data: &mut Self::Data, len: usize) {
         defer! {
             if data.drop_alloc {
                 Vec::from_raw_parts(data.start, 0, data.cap);
             }
         }
 
-        let offset = data.ptr.offset_from(data.start) as usize;
-
-        std::ptr::drop_in_place(std::slice::from_raw_parts_mut(data.ptr, data.len - offset));
+        std::ptr::drop_in_place(std::slice::from_raw_parts_mut(data.ptr, data.len - len));
     }
 }
 
@@ -279,8 +324,8 @@ unsafe impl<A: TupleElem> Tuple for (A,) {
     }
 
     #[inline]
-    unsafe fn drop_rest(data: &mut Self::Data) {
-        A::drop_rest(data)
+    unsafe fn drop_rest(data: &mut Self::Data, len: usize) {
+        A::drop_rest(data, len)
     }
 }
 
@@ -348,16 +393,16 @@ unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
     }
 
     #[inline]
-    unsafe fn drop_rest((vec, rest): &mut Self::Data) {
+    unsafe fn drop_rest((vec, rest): &mut Self::Data, len: usize) {
         defer! {
-            T::drop_rest(rest);
+            T::drop_rest(rest, len);
         }
 
-        A::drop_rest(vec)
+        A::drop_rest(vec, len)
     }
 }
 
-pub struct ZipWithIter<V, In: Tuple> {
+struct ZipWithIter<V, In: Tuple> {
     // This left buffer is the one that will be reused
     // to write the output into
     out: Output<V>,
@@ -373,6 +418,7 @@ pub struct ZipWithIter<V, In: Tuple> {
     should_free: bool,
 }
 
+/// Does the work of the `try_zip_with` or `zip_with` macros.
 pub fn try_zip_with<R: Try, In: Tuple>(
     input: In,
     f: impl FnMut(In::Item) -> R,
@@ -441,16 +487,18 @@ impl<V, In: Tuple> Drop for ZipWithIter<V, In> {
             ..
         } = self;
 
+        let len = init_len - min_len;
+
         defer! {
             if should_free {
                 unsafe {
-                    Vec::from_raw_parts(out.start, init_len - min_len - 1, out.cap);
+                    Vec::from_raw_parts(out.start, len - 1, out.cap);
                 }
             }
         }
 
         unsafe {
-            In::drop_rest(input);
+            In::drop_rest(input, len);
         }
     }
 }
