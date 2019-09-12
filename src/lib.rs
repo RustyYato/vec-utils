@@ -92,8 +92,6 @@ impl<F: FnOnce()> Drop for OnDrop<F> {
     }
 }
 
-pub mod test;
-
 mod boxed;
 mod vec;
 
