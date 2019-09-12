@@ -1,7 +1,4 @@
-use vec_utils::{
-    combin::{Data, IntoVecIter},
-    VecExt,
-};
+use vec_utils::{try_zip_with, zip_with, VecExt};
 
 #[test]
 fn map() {
@@ -24,9 +21,7 @@ fn map() {
 fn map_combin() {
     let vec = vec![0.0f32, 1.0, 2.0, 3.0];
 
-    let vec: Vec<u32> = Data::from(vec)
-        .map(move |x| unsafe { std::mem::transmute(x) })
-        .into_vec();
+    let vec: Vec<u32> = zip_with!((vec), |x| unsafe { std::mem::transmute(x) });
 
     assert_eq!(
         vec,
@@ -68,30 +63,21 @@ fn zip() {
     let a = vec![0.0f32, 1.0, 2.0, 3.0];
     let b = vec![0.0f32, 1.0, 2.0, 3.0];
 
-    let vec: Vec<f32> = Data::from(a)
-        .zip(Data::from(b))
-        .map(move |(a, b)| a + b)
-        .into_vec();
+    let vec: Vec<f32> = zip_with!((a, b), |a, b| a + b);
 
     assert_eq!(vec, [0.0, 2.0, 4.0, 6.0]);
 
     let a = vec![0.0f64, 1.0, 2.0, 3.0];
     let b = vec![0.0f32, 1.0, 2.0, 3.0];
 
-    let vec: Vec<f64> = Data::from(a)
-        .zip(Data::from(b))
-        .map(move |(a, b)| a + f64::from(b))
-        .into_vec();
+    let vec: Vec<f64> = zip_with!((a, b), |a, b| a + f64::from(b));
 
     assert_eq!(vec, [0.0, 2.0, 4.0, 6.0]);
 
     let a = vec![0.0f32, 1.0, 2.0, 3.0];
     let b = vec![0.0f64, 1.0, 2.0, 3.0];
 
-    let vec: Vec<f64> = Data::from(a)
-        .zip(Data::from(b))
-        .map(move |(a, b)| f64::from(a) + b)
-        .into_vec();
+    let vec: Vec<f64> = zip_with!((a, b), |a, b| f64::from(a) + b);
 
     assert_eq!(vec, [0.0, 2.0, 4.0, 6.0]);
 }

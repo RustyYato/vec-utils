@@ -4,10 +4,7 @@ extern crate test;
 
 use test::{black_box, Bencher};
 
-use vec_utils::{
-    combin::{Data, IntoVecIter},
-    VecExt,
-};
+use vec_utils::VecExt;
 
 #[bench]
 fn bench_pure(b: &mut Bencher) {
@@ -44,23 +41,6 @@ fn bench_zip_macro(b: &mut Bencher) {
             black_box(vec_utils::zip_with! {
                 (x.clone(), y.clone()), |x, y| f64::from(x) + y
             });
-        }
-    })
-}
-
-#[bench]
-fn bench_zip_combin(b: &mut Bencher) {
-    let x = (0..10000).map(|x| x as f32).collect::<Vec<_>>();
-    let y = (0..10000).map(f64::from).collect::<Vec<_>>();
-
-    b.iter(|| {
-        for _ in 0..1000 {
-            black_box(
-                Data::from(x.clone())
-                    .zip(Data::from(y.clone()))
-                    .map(|(x, y)| f64::from(x) + y)
-                    .into_vec(),
-            );
         }
     })
 }

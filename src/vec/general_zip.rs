@@ -2,83 +2,6 @@ use super::{Input, Output};
 
 pub use std::ops::Try;
 
-/// A macro to give syntactic sugar for `tuple::try_zip_with`
-/// 
-/// This allows combining multiple vectors into a one with short-circuiting
-/// on the failure case
-/// 
-/// # Usage
-/// 
-/// ```rust
-/// # use vec_utils::try_zip_with;
-/// # let vec_1: Vec<()> = Vec::new();
-/// # let vec_2: Vec<()> = Vec::new();
-/// # let vec_n: Vec<()> = Vec::new();
-/// # let value = Ok::<(), ()>(());
-/// try_zip_with!((vec_1, vec_2, vec_n), |x1, x2, xn| value);
-/// ```
-/// `value` can be any expression using `x1`, `x2`, `xn` or any other values from the environment
-/// 
-/// Note that `|x1, x2, xn| value` is not a closure, but some syntax that looks like a closure. In particular you
-/// cannot use general patterns for the parameters, only identifiers are allowed. Second, you can't pass in a closure
-/// like so,
-/// 
-/// ```rust compile_fail
-/// # use vec_utils::try_zip_with;
-/// # let vec_1: Vec<()> = Vec::new();
-/// # let vec_2: Vec<()> = Vec::new();
-/// # let vec_n: Vec<()> = Vec::new();
-/// # let value = Ok::<(), ()>(());
-/// try_zip_with!((vec_1, vec_2, vec_n), closure)
-/// ```
-/// 
-/// But it will work just like a move closure in all other cases.
-/// 
-/// The first call will desugar to
-/// 
-/// ```rust
-/// # let vec_1: Vec<()> = Vec::new();
-/// # let vec_2: Vec<()> = Vec::new();
-/// # let vec_n: Vec<()> = Vec::new();
-/// # let value = Ok::<(), ()>(());
-/// vec_utils::tuple::try_zip_with((vec_1, (vec_2, (vec_n,))), move |(x1, (x2, xn))| value);
-/// ```
-#[macro_export]
-macro_rules! try_zip_with {
-    (($($vec:expr),+ $(,)?), |$($i:ident),+ $(,)?| $($work:tt)*) => {{
-        $(let $i = $vec;)*
-
-        $crate::tuple::try_zip_with(
-            $crate::list!(WRAP $($i),*),
-            |$crate::list!(PLACE $($i),*)| $($work)*
-        )
-    }};
-}
-
-/// A wrapper around `try_zip_with` for infallible mapping
-#[macro_export]
-macro_rules! zip_with {
-    (($($vec:expr),+ $(,)?), |$($i:ident),+ $(,)?| $($work:tt)*) => {{
-        $crate::tuple::unwrap($crate::try_zip_with!(
-            ($($vec),+), |$($i),+|
-            Ok::<_, std::convert::Infallible>($($work)*)
-        ))
-    }};
-}
-
-#[macro_export]
-macro_rules! list {
-    (WRAP $e:ident) => {
-        ($e,)
-    };
-    (PLACE $e:ident) => {
-        $e
-    };
-    ($wrap:ident $e:ident $(, $rest:ident)* $(,)?) => {
-        ($e, $crate::list!($wrap $($rest),*))
-    };
-}
-
 use std::alloc::Layout;
 
 pub fn unwrap<T: Try>(t: T) -> T::Ok
@@ -92,10 +15,10 @@ where
 }
 
 /// A specialized const-list for emulating varaidic generics
-/// 
+///
 /// To overload what elements can go in this tuple, please use the
 /// [`TupleElem`](trait.TupleElem.html) trait
-/// 
+///
 /// # Safety
 ///
 /// I make no safety guarantees about this trait for it's public api
