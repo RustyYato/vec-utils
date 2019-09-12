@@ -14,6 +14,11 @@ where
     }
 }
 
+use seal::Seal;
+mod seal {
+    pub trait Seal {}
+}
+
 /// A specialized const-list for emulating varaidic generics
 ///
 /// To overload what elements can go in this tuple, please use the
@@ -24,7 +29,7 @@ where
 /// I make no safety guarantees about this trait for it's public api
 ///
 /// i.e. it is only safe to use impls from this crate
-pub unsafe trait Tuple {
+pub unsafe trait Tuple: Seal {
     type Item;
     type Data;
     type Iter: Iterator<Item = Self::Item>;
@@ -196,6 +201,7 @@ unsafe impl<A> TupleElem for Vec<A> {
     }
 }
 
+impl<A: TupleElem> Seal for (A,) {}
 unsafe impl<A: TupleElem> Tuple for (A,) {
     type Item = A::Item;
     type Data = A::Data;
@@ -252,6 +258,7 @@ unsafe impl<A: TupleElem> Tuple for (A,) {
     }
 }
 
+impl<A: TupleElem, T: Tuple> Seal for (A, T) {}
 unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
     type Item = (A::Item, T::Item);
     type Data = (A::Data, T::Data);
