@@ -286,6 +286,107 @@ mod vec {
     }
 }
 
+mod tuple {
+    #![allow(unused_assignments)]
+    use super::*;
+    use crate::{zip_with, try_zip_with};
+
+    #[test]
+    fn map() {
+        let dr = DropCounter::new();
+
+        let vec = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
+
+        zip_with!((vec), |x| dr.create(*x.get()));
+    }
+    
+    #[test]
+    fn try_map() {
+        let dr = DropCounter::new();
+
+        let vec = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
+
+        let mut counter = 0;
+
+        let err = try_zip_with!((vec), |x| {
+            counter += 1;
+
+            if counter == 3 {
+                None
+            } else {
+                Some(dr.create(*x.get() as f32))
+            }
+        });
+
+        assert!(err.is_err());
+    }
+
+    #[test]
+    fn zip_with_same() {
+        let dr = DropCounter::new();
+
+        let mut a = (0i32..10).map(|x| dr.create(x)).collect::<Vec<_>>();
+        let b = (20i32..30).map(|x| dr.create(x)).collect::<Vec<_>>();
+
+        let mut flip = false;
+
+        a = zip_with!((a, b), |x, y| {
+            flip = !flip;
+
+            if flip {
+                x
+            } else {
+                y
+            }
+        });
+    }
+
+    #[test]
+    fn zip_with_diff() {
+        let dr = DropCounter::new();
+
+        let a = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
+        let mut b = (20..40).map(|x| dr.create(x)).collect::<Vec<_>>();
+
+        let mut flip = false;
+
+        b = zip_with!((a, b), |x, y| {
+            flip = !flip;
+
+            if flip {
+                x
+            } else {
+                y
+            }
+        });
+    }
+
+    #[test]
+    fn try_zip_with() {
+        let dr = DropCounter::new();
+
+        let a = (0..10).map(|x| dr.create(x)).collect::<Vec<_>>();
+        let b = (20..40).map(|x| dr.create(x)).collect::<Vec<_>>();
+
+        let mut flip = false;
+        let mut counter = 0;
+
+        let err = try_zip_with!((a, b), |x, y| {
+                flip = !flip;
+                counter += 1;
+
+                if counter == 5 {
+                    None
+                } else {
+                    Some(dr.create((*x.get()) as f32 + *y.get() as f32))
+                }
+            })
+            .is_err();
+
+        assert!(err);
+    }
+}
+
 mod combin {
     #![allow(unused_assignments)]
     use super::*;

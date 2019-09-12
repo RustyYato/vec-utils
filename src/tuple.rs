@@ -1,6 +1,5 @@
 use super::{Input, Output};
 
-use std::mem::ManuallyDrop;
 pub use std::ops::Try;
 
 #[macro_export]
@@ -367,6 +366,8 @@ pub struct ZipWithIter<V, In: Tuple> {
     init_len: usize,
     // the length of the vectors that must be traversed
     min_len: usize,
+
+    should_free: bool
 }
 
 pub fn try_zip_with<R: Try, In: Tuple>(input: In, f: impl FnMut(In::Item) -> R) -> Result<Vec<R::Ok>, R::Error> {
@@ -380,6 +381,7 @@ pub fn try_zip_with<R: Try, In: Tuple>(input: In, f: impl FnMut(In::Item) -> R) 
                 input,
                 init_len: len,
                 min_len: len,
+                should_free: true,
             }.try_into_vec(f),
             None => unsafe {
                 std::hint::unreachable_unchecked()
@@ -410,34 +412,36 @@ impl<V, In: Tuple> ZipWithIter<V, In> {
 
         // We don't want to drop `self` if dropping the excess elements panics
         // as that could lead to double drops
-        let mut vec = ManuallyDrop::new(self);
-        let vec = &mut *vec;
-        let output;
-
+        self.should_free = false;
+        
         unsafe {
             // create the vector now, so that if we panic in drop, we don't leak it
-            output = Vec::from_raw_parts(vec.out.start as *mut V, vec.init_len, vec.out.cap);
-
-            In::drop_rest(&mut vec.input);
+            Ok(Vec::from_raw_parts(self.out.start as *mut V, self.init_len, self.out.cap))
         }
-
-        Ok(output)
     }
 }
 
 impl<V, In: Tuple> Drop for ZipWithIter<V, In> {
     fn drop(&mut self) {
-        let len = self.init_len - self.min_len - 1;
-        let out = &mut self.out;
-
+        let &mut ZipWithIter {
+            ref mut out,
+            ref mut input,
+            should_free,
+            init_len,
+            min_len,
+            ..
+        } = self;
+        
         defer! {
-            unsafe {
-                Vec::from_raw_parts(out.start, len, out.cap);
+            if should_free {
+                unsafe {
+                    Vec::from_raw_parts(out.start, init_len - min_len - 1, out.cap);
+                }
             }
         }
 
         unsafe {
-            In::drop_rest(&mut self.input);
+            In::drop_rest(input);
         }
     }
 }
