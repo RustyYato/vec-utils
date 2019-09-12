@@ -15,47 +15,50 @@ macro_rules! defer {
 /// # Usage
 ///
 /// ```rust
-/// # use vec_utils::try_zip_with;
-/// # let vec_1: Vec<()> = Vec::new();
-/// # let vec_2: Vec<()> = Vec::new();
-/// # let vec_n: Vec<()> = Vec::new();
-/// # let value = Ok::<(), ()>(());
-/// try_zip_with!((vec_1, vec_2, vec_n), |x1, x2, xn| value);
+/// use vec_utils::{zip_with, try_zip_with};
+/// 
+/// fn to_bits(v: Vec<f32>) -> Vec<u32> {
+///    zip_with!(v, |x| x.to_bits())
+/// }
+/// 
+/// fn sum_2(v: Vec<f32>, w: Vec<f64>) -> Vec<f64> {
+///    zip_with!((v, w), |x, y| f64::from(x) + y)
+/// }
+/// 
+/// fn sum_5(a: Vec<i32>, b: Vec<i32>, c: Vec<i32>, d: Vec<i32>, e: Vec<i32>) -> Vec<i32> {
+///    zip_with!((a, b, c, d, e), |a, b, c, d, e| a + b + c + d + e)
+/// }
+/// 
+/// fn mul_with(a: Vec<i32>) -> Vec<i32> {
+///    zip_with!((a, vec![0, 1, 2, 3, 4, 5, 6, 7]), |a, x| a * x)
+/// }
+/// 
+/// fn to_bits_no_nans(v: Vec<f32>) -> Result<Vec<u32>, &'static str> {
+///     try_zip_with!(v, |x| if x.is_nan() { Err("Found NaN!") } else { Ok(x.to_bits()) })
+/// }
 /// ```
-/// `value` can be any expression using `x1`, `x2`, `xn` or any other values from the environment
-///
-/// Note that `|x1, x2, xn| value` is not a closure, but some syntax that looks like a closure. In particular you
-/// cannot use general patterns for the parameters, only identifiers are allowed. Second, you can't pass in a closure
-/// like so,
-///
-/// ```rust compile_fail
-/// # use vec_utils::try_zip_with;
-/// # let vec_1: Vec<()> = Vec::new();
-/// # let vec_2: Vec<()> = Vec::new();
-/// # let vec_n: Vec<()> = Vec::new();
-/// # let value = Ok::<(), ()>(());
-/// try_zip_with!((vec_1, vec_2, vec_n), closure)
-/// ```
-///
-/// But it will work just like a move closure in all other cases.
-///
-/// The first call will desugar to
-///
+/// You can use as many input vectors as you want, just put them all inside the input tuple. 
+/// Note that the second argument is not a closure, but syntax that looks like a closure,
+/// i.e. you can't make a closure before-hand and pass it as the second argument. Also, you can't
+/// use general patterns in the "closure"'s arguments, only identifiers are allowed. 
+/// You can specify if you want a move closure by adding the move keyword in from of the "closure".
+/// 
 /// ```rust
-/// # let vec_1: Vec<()> = Vec::new();
-/// # let vec_2: Vec<()> = Vec::new();
-/// # let vec_n: Vec<()> = Vec::new();
-/// # let value = Ok::<(), ()>(());
-/// vec_utils::general_zip::try_zip_with((vec_1, (vec_2, (vec_n,))), move |(x1, (x2, xn))| value);
+/// use vec_utils::zip_with;
+/// 
+/// fn add(a: Vec<i32>, b: i32) -> Vec<i32> {
+///     zip_with!(a, move |a| a + b)
+/// }
 /// ```
+
 #[macro_export]
 macro_rules! try_zip_with {
-    ($vec:expr, |$($i:ident),+ $(,)?| $($work:tt)*) => {{
+    ($vec:expr, $($move:ident)? |$($i:ident),+ $(,)?| $($work:tt)*) => {{
         let ($($i),*) = $vec;
 
         $crate::general_zip::try_zip_with(
             $crate::list!(WRAP $($i),*),
-            |$crate::list!(PLACE $($i),*)| $($work)*
+            $($move)? |$crate::list!(PLACE $($i),*)| $($work)*
         )
     }};
 }
@@ -63,9 +66,9 @@ macro_rules! try_zip_with {
 /// A wrapper around `try_zip_with` for infallible mapping
 #[macro_export]
 macro_rules! zip_with {
-    ($vec:expr, |$($i:ident),+ $(,)?| $($work:tt)*) => {{
+    ($vec:expr, $($move:ident)? |$($i:ident),+ $(,)?| $($work:tt)*) => {{
         $crate::general_zip::unwrap($crate::try_zip_with!(
-            $vec, |$($i),+|
+            $vec, $($move)? |$($i),+|
             Ok::<_, std::convert::Infallible>($($work)*)
         ))
     }};
