@@ -55,8 +55,13 @@ pub fn unwrap<T: Try>(t: T) -> T::Ok where T::Error: Into<std::convert::Infallib
 pub unsafe trait Tuple {
     type Item;
     type Data;
+    type Iter: Iterator<Item = Self::Item>;
 
     fn into_data(self) -> Self::Data;
+
+    fn min_len(&self) -> usize;
+
+    fn into_iter(self) -> Self::Iter;
 
     fn check_pick<V>(&self) -> bool;
 
@@ -92,6 +97,9 @@ pub unsafe trait TupleElem {
     /// The data-segment that `Output<V>` is derived from
     /// and yields `Item`s
     type Data;
+
+    /// An iterator over the items in the collection
+    type Iter: Iterator<Item = Self::Item>;
     
     /// The capacity of the data-segment
     fn capacity(data: &Self::Data) -> usize;
@@ -103,6 +111,9 @@ pub unsafe trait TupleElem {
 
     /// Convert into a raw data-segment
     fn into_data(self) -> Self::Data;
+
+    /// Convert to an iterator if we cannot reuse the data-segment
+    fn into_iter(self) -> Self::Iter;
 
     /// If this returns `true` then `try_pick` should return `Some`
     fn check_pick<V>(&self) -> bool;
@@ -153,6 +164,7 @@ unsafe fn do_pick_erased<A: TupleElem>(ptr: *mut ()) {
 unsafe impl<A> TupleElem for Vec<A> {
     type Item = A;
     type Data = Input<A>;
+    type Iter = std::vec::IntoIter<A>;
 
     #[inline(always)]
     fn capacity(data: &Self::Data) -> usize {
@@ -167,6 +179,11 @@ unsafe impl<A> TupleElem for Vec<A> {
     #[inline]
     fn into_data(self) -> Self::Data {
         Input::from(self)
+    }
+
+    #[inline]
+    fn into_iter(self) -> Self::Iter {
+        IntoIterator::into_iter(self)
     }
 
     #[inline]
@@ -212,10 +229,21 @@ unsafe impl<A> TupleElem for Vec<A> {
 unsafe impl<A: TupleElem> Tuple for (A,) {
     type Item = A::Item;
     type Data = A::Data;
+    type Iter = A::Iter;
 
     #[inline]
     fn into_data(self) -> Self::Data {
         self.0.into_data()
+    }
+
+    #[inline]
+    fn into_iter(self) -> Self::Iter {
+        self.0.into_iter()
+    }
+
+    #[inline]
+    fn min_len(&self) -> usize {
+        self.0.len()
     }
 
     #[inline]
@@ -257,10 +285,21 @@ unsafe impl<A: TupleElem> Tuple for (A,) {
 unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
     type Item = (A::Item, T::Item);
     type Data = (A::Data, T::Data);
+    type Iter = std::iter::Zip<A::Iter, T::Iter>;
 
     #[inline]
     fn into_data(self) -> Self::Data {
         (self.0.into_data(), self.1.into_data())
+    }
+
+    #[inline]
+    fn into_iter(self) -> Self::Iter {
+        self.0.into_iter().zip(self.1.into_iter())
+    }
+
+    #[inline]
+    fn min_len(&self) -> usize {
+        self.0.len().min(self.1.min_len())
     }
 
     #[inline]
@@ -316,46 +355,6 @@ unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
     }
 }
 
-pub trait InitTuple: Tuple {
-    type Iter: Iterator<Item = Self::Item>;
-
-    fn min_len(&self) -> usize;
-
-    fn into_iter(self) -> Self::Iter;
-}
-
-impl<A> InitTuple for (Vec<A>,) {
-    type Iter = std::vec::IntoIter<A>;
-
-    #[inline]
-    fn min_len(&self) -> usize {
-        self.0.len()
-    }
-
-    #[inline]
-    fn into_iter(self) -> Self::Iter {
-        self.0.into_iter()
-    }
-}
-
-impl<Tup: InitTuple, A> InitTuple for (Vec<A>, Tup) {
-    type Iter = std::iter::Zip<
-        std::vec::IntoIter<A>,
-        Tup::Iter
-    >;
-
-    #[inline]
-    fn min_len(&self) -> usize {
-        self.0.len()
-            .min(self.1.min_len())
-    }
-
-    #[inline]
-    fn into_iter(self) -> Self::Iter {
-        self.0.into_iter().zip(self.1.into_iter())
-    }
-}
-
 pub struct ZipWithIter<V, In: Tuple> {
     // This left buffer is the one that will be reused
     // to write the output into
@@ -370,7 +369,7 @@ pub struct ZipWithIter<V, In: Tuple> {
     min_len: usize,
 }
 
-pub fn try_zip_with<R: Try, In: InitTuple>(input: In, f: impl FnMut(In::Item) -> R) -> Result<Vec<R::Ok>, R::Error> {
+pub fn try_zip_with<R: Try, In: Tuple>(input: In, f: impl FnMut(In::Item) -> R) -> Result<Vec<R::Ok>, R::Error> {
     if input.check_pick::<R::Ok>() {
         let len = input.min_len();
         let mut input = input.into_data();
