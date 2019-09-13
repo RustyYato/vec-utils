@@ -128,7 +128,7 @@ macro_rules! try_zip_with {
         #[allow(unused_parens)]
         let ($($i),*) = $vec;
 
-        $crate::try_zip_with(
+        $crate::try_zip_with_impl(
             $crate::list!(WRAP $($i),*),
             $($move)? |$crate::list!(PLACE $($i),*)| $($work)*
         )

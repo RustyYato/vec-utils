@@ -405,19 +405,21 @@ impl<V, In: Tuple> ZipWithIter<V, In> {
                 self.output.ptr.write(f(input)?);
                 self.output.ptr = self.output.ptr.add(1);
             }
-        }
 
-        // We don't want to drop `self` if dropping the excess elements panics
-        // as that could lead to double drops
-        self.should_free_output = false;
-
-        unsafe {
-            // create the vector now, so that if we panic in drop, we don't leak it
-            Ok(Vec::from_raw_parts(
-                self.output.start as *mut V,
+            // We don't want to drop `self` if dropping the excess elements panics
+            // as that could lead to double drops
+            self.should_free_output = false;
+            
+            let (ptr, len, cap) = (
+                self.output.start,
                 self.initial_len,
                 self.output.cap,
-            ))
+            );
+
+            drop(self);
+
+            // create the vector now, so that if we panic in drop, we don't leak it
+            Ok(Vec::from_raw_parts(ptr, len, cap))
         }
     }
 }
