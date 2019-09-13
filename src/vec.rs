@@ -4,6 +4,8 @@ use std::ops::Try;
 
 use std::alloc::Layout;
 
+/// A module for generalized mapping with an arbitrary number
+/// of input vectors
 pub mod general_zip;
 
 /// A type that contains useful meta-data about a
@@ -41,6 +43,8 @@ pub struct Output<T> {
 }
 
 impl<T> Output<T> {
+    /// Create a new output buffer, this buffer will own it's data segment
+    /// from `start` to `start.add(cap)`
     pub unsafe fn new(start: *mut T, cap: usize) -> Self {
         Self {
             start,
@@ -70,6 +74,7 @@ impl<T> From<Vec<T>> for Input<T> {
 
 /// Extension methods for `Vec<T>`
 pub trait VecExt: Sized {
+    /// The type that the `Vec<T>` stores
     type T;
 
     /// Map a vector to another vector, will try and reuse the allocation if the

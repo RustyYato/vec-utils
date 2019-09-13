@@ -2,11 +2,17 @@ use std::alloc::Layout;
 use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
 
+/// Extension methods for `Box<T>`
 pub trait BoxExt: Sized {
+    /// The type that the `Box<T>` stores
     type T: ?Sized;
 
+    /// drops the value inside the box and returns the allocation
+    /// in the form of an `UninitBox`
     fn drop_box(bx: Self) -> UninitBox;
 
+    /// takes the value inside the box and returns it as well as the
+    /// allocation in the form of an `UninitBox`
     fn take_box(bx: Self) -> (UninitBox, Self::T)
     where
         Self::T: Sized;
@@ -55,29 +61,20 @@ pub struct UninitBox {
     layout: Layout,
 }
 
-#[test]
-fn uninit_box() {
-    UninitBox::new::<u32>().init(0.0f32);
-    UninitBox::array::<u32>(3).init((0.0f32, 0u32, 10i32));
-    UninitBox::new::<()>().init(());
-}
-
 impl UninitBox {
+    /// The layout of the allocation
     #[inline]
     pub fn layout(&self) -> Layout {
         self.layout
     }
 
+    /// create a new allocation that can fit the given type
     #[inline]
     pub fn new<T>() -> Self {
         Self::from_layout(Layout::new::<T>())
     }
 
-    #[inline]
-    pub fn array<T>(n: usize) -> Self {
-        Self::from_layout(Layout::array::<T>(n).expect("Invalid array!"))
-    }
-
+    /// Create a new allocation that can fit the given layout
     #[inline]
     pub fn from_layout(layout: Layout) -> Self {
         if layout.size() == 0 {
@@ -101,6 +98,12 @@ impl UninitBox {
         }
     }
 
+    /// Initialize the box with the given value,
+    ///
+    /// # Panic
+    ///
+    /// if `std::alloc::Layout::new::<T>() != self.layout()` then
+    /// this function will panic
     #[inline]
     pub fn init<T>(self, value: T) -> Box<T> {
         assert_eq!(
@@ -120,6 +123,12 @@ impl UninitBox {
         }
     }
 
+    /// Initialize the box with the given value,
+    ///
+    /// # Panic
+    ///
+    /// if `std::alloc::Layout::new::<T>() != self.layout()` then
+    /// this function will panic
     #[inline]
     pub fn init_with<T, F: FnOnce() -> T>(self, value: F) -> Box<T> {
         assert_eq!(
@@ -139,14 +148,18 @@ impl UninitBox {
         }
     }
 
+    /// Get the pointer from the `UninitBox`
+    ///
+    /// This pointer is not valid to write to
     #[inline]
-    pub fn as_ptr(&self) -> *const u8 {
-        self.ptr.as_ptr()
+    pub fn as_ptr(&self) -> *const () {
+        self.ptr.as_ptr() as *const ()
     }
 
+    /// Get the pointer from the `UninitBox`
     #[inline]
-    pub fn as_mut_ptr(&mut self) -> *mut u8 {
-        self.ptr.as_ptr()
+    pub fn as_mut_ptr(&mut self) -> *mut () {
+        self.ptr.as_ptr() as *mut ()
     }
 }
 

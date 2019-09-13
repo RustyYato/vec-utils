@@ -18,7 +18,33 @@ where
 
 use seal::Seal;
 mod seal {
-    pub trait Seal {}
+    use super::*;
+
+    pub unsafe trait Seal {
+        const LEN: u64;
+
+        type Item;
+        type Data;
+        type Iter: Iterator<Item = Self::Item>;
+
+        fn into_data(self) -> Self::Data;
+
+        fn remaining_len(&self) -> usize;
+
+        fn into_iter(self) -> Self::Iter;
+
+        fn check_layout<V>() -> bool;
+
+        fn max_cap<V>(data: &Self::Data, depth: &mut u64) -> Option<usize>;
+
+        unsafe fn take_output<V>(data: &mut Self::Data) -> Output<V>;
+
+        unsafe fn take_output_impl<V>(_: &mut Self::Data, min_cap: u64) -> Output<V>;
+
+        unsafe fn next_unchecked(data: &mut Self::Data) -> Self::Item;
+
+        unsafe fn drop_rest(data: &mut Self::Data, len: usize);
+    }
 }
 
 /// A specialized const-list for emulating varaidic generics
@@ -26,36 +52,8 @@ mod seal {
 /// To overload what elements can go in this tuple, please use the
 /// [`TupleElem`](trait.TupleElem.html) trait
 ///
-/// # Safety
-///
-/// I make no safety guarantees about this trait for it's public api
-///
-/// i.e. it is only safe to use impls from this crate
-pub unsafe trait Tuple: Seal {
-    const LEN: u64;
-    
-    type Item;
-    type Data;
-    type Iter: Iterator<Item = Self::Item>;
-
-    fn into_data(self) -> Self::Data;
-
-    fn remaining_len(&self) -> usize;
-
-    fn into_iter(self) -> Self::Iter;
-
-    fn check_layout<V>() -> bool;
-
-    fn max_cap<V>(data: &Self::Data, depth: &mut u64) -> Option<usize>;
-
-    unsafe fn take_output<V>(data: &mut Self::Data) -> Output<V>;
-
-    unsafe fn take_output_impl<V>(_: &mut Self::Data, min_cap: u64) -> Output<V>;
-
-    unsafe fn next_unchecked(data: &mut Self::Data) -> Self::Item;
-
-    unsafe fn drop_rest(data: &mut Self::Data, len: usize);
-}
+/// This is a sealed trait that is not meant to be extended
+pub trait Tuple: Seal {}
 
 /// This trait abstracts away elements of the input stream
 ///
@@ -194,7 +192,7 @@ unsafe impl<A> TupleElem for Vec<A> {
     #[inline]
     unsafe fn take_output<V>(data: &mut Self::Data) -> Output<V> {
         debug_assert!(Layout::new::<A>() == Layout::new::<V>());
-        
+
         data.drop_alloc = false;
         Output::new(data.start as *mut V, data.cap)
     }
@@ -218,8 +216,8 @@ unsafe impl<A> TupleElem for Vec<A> {
     }
 }
 
-impl<A: TupleElem> Seal for (A,) {}
-unsafe impl<A: TupleElem> Tuple for (A,) {
+impl<A: TupleElem> Tuple for (A,) {}
+unsafe impl<A: TupleElem> Seal for (A,) {
     const LEN: u64 = 0;
 
     type Item = A::Item;
@@ -278,10 +276,10 @@ unsafe impl<A: TupleElem> Tuple for (A,) {
     }
 }
 
-impl<A: TupleElem, T: Tuple> Seal for (A, T) {}
-unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
+impl<A: TupleElem, T: Tuple> Tuple for (A, T) {}
+unsafe impl<A: TupleElem, T: Seal> Seal for (A, T) {
     const LEN: u64 = T::LEN + 1;
-    
+
     type Item = (A::Item, T::Item);
     type Data = (A::Data, T::Data);
     type Iter = std::iter::Zip<A::Iter, T::Iter>;
@@ -315,7 +313,7 @@ unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
 
             if let Some(cap_rest) = cap_rest {
                 if cap_rest > cap {
-                    return Some(cap_rest)
+                    return Some(cap_rest);
                 }
             }
 
@@ -385,9 +383,7 @@ pub fn try_zip_with<R: Try, In: Tuple>(
         let mut input = input.into_data();
 
         ZipWithIter::<_, In> {
-            output: unsafe {
-                In::take_output::<R::Ok>(&mut input)
-            },
+            output: unsafe { In::take_output::<R::Ok>(&mut input) },
             input,
             initial_len: len,
             remaining_len: len,
