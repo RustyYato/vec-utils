@@ -40,17 +40,17 @@ pub unsafe trait Tuple: Seal {
 
     fn min_len(&self) -> usize;
 
-    fn max_cap<V>(data: &Self::Data, depth: &mut u64) -> Option<usize>;
-
     fn into_iter(self) -> Self::Iter;
 
-    fn check_pick<V>() -> bool;
+    fn check_layout<V>() -> bool;
 
-    unsafe fn pick<V>(data: &mut Self::Data) -> Output<V>;
+    fn max_cap<V>(data: &Self::Data, depth: &mut u64) -> Option<usize>;
 
-    unsafe fn pick_impl<V>(_: &mut Self::Data, min_cap: u64) -> Output<V>;
+    unsafe fn take_output<V>(data: &mut Self::Data) -> Output<V>;
 
-    unsafe fn next(data: &mut Self::Data) -> Self::Item;
+    unsafe fn take_output_impl<V>(_: &mut Self::Data, min_cap: u64) -> Output<V>;
+
+    unsafe fn next_unchecked(data: &mut Self::Data) -> Self::Item;
 
     unsafe fn drop_rest(data: &mut Self::Data, len: usize);
 }
@@ -59,10 +59,10 @@ pub unsafe trait Tuple: Seal {
 ///
 /// # Safety
 ///
-/// * It must be valid to call `next` at least `len` times
+/// * It must be valid to call `next_unchecked` at least `len` times
 /// * `len <= capacity`
-/// * if `next` defers to another `T: TupleElem`, then you should not call `T::next` more than once
-///     in your own `next`
+/// * if `next_unchecked` defers to another `T: TupleElem`, then you should not call `T::next_unchecked` more than once
+///     in your own `next_unchecked`
 #[allow(clippy::len_without_is_empty)]
 pub unsafe trait TupleElem {
     /// The items yielded from this element
@@ -89,20 +89,20 @@ pub unsafe trait TupleElem {
     /// Convert to an iterator if we cannot reuse the data-segment
     fn into_iter(self) -> Self::Iter;
 
-    /// If this returns `true` then `pick` should return `Some`
-    fn check_pick<V>() -> bool;
+    /// If this returns `true` then `take_output` should return `Some`
+    fn check_layout<V>() -> bool;
 
     /// Try and create a new output data-segment, if the output segment
     /// is created, then it owns it's allocation. So you must not deallocate
     /// the allocation backing `Output<V>`
-    unsafe fn pick<V>(data: &mut Self::Data) -> Output<V>;
+    unsafe fn take_output<V>(data: &mut Self::Data) -> Output<V>;
 
-    /// Get the next element
+    /// Get the next_unchecked element
     ///
     /// # Safety
     ///
     /// This must be called *at most* `len` times
-    unsafe fn next(data: &mut Self::Data) -> Self::Item;
+    unsafe fn next_unchecked(data: &mut Self::Data) -> Self::Item;
 
     /// Drop the rest of the buffer and deallocate
     /// if `do_pick` was never called
@@ -139,18 +139,18 @@ unsafe impl<A: TupleElem> TupleElem for (A,) {
     }
 
     #[inline]
-    fn check_pick<V>() -> bool {
-        A::check_pick::<V>()
+    fn check_layout<V>() -> bool {
+        A::check_layout::<V>()
     }
 
     #[inline]
-    unsafe fn pick<V>(data: &mut Self::Data) -> Output<V> {
-        A::pick(data)
+    unsafe fn take_output<V>(data: &mut Self::Data) -> Output<V> {
+        A::take_output(data)
     }
 
     #[inline]
-    unsafe fn next(data: &mut Self::Data) -> Self::Item {
-        A::next(data)
+    unsafe fn next_unchecked(data: &mut Self::Data) -> Self::Item {
+        A::next_unchecked(data)
     }
 
     #[inline]
@@ -185,12 +185,12 @@ unsafe impl<A> TupleElem for Vec<A> {
     }
 
     #[inline]
-    fn check_pick<V>() -> bool {
+    fn check_layout<V>() -> bool {
         Layout::new::<A>() == Layout::new::<V>()
     }
 
     #[inline]
-    unsafe fn pick<V>(data: &mut Self::Data) -> Output<V> {
+    unsafe fn take_output<V>(data: &mut Self::Data) -> Output<V> {
         debug_assert!(Layout::new::<A>() == Layout::new::<V>());
         
         data.drop_alloc = false;
@@ -198,7 +198,7 @@ unsafe impl<A> TupleElem for Vec<A> {
     }
 
     #[inline]
-    unsafe fn next(data: &mut Self::Data) -> Self::Item {
+    unsafe fn next_unchecked(data: &mut Self::Data) -> Self::Item {
         let ptr = data.ptr;
         data.ptr = data.ptr.add(1);
         ptr.read()
@@ -240,8 +240,13 @@ unsafe impl<A: TupleElem> Tuple for (A,) {
     }
 
     #[inline]
+    fn check_layout<V>() -> bool {
+        A::check_layout::<V>()
+    }
+
+    #[inline]
     fn max_cap<V>(data: &Self::Data, depth: &mut u64) -> Option<usize> {
-        if A::check_pick::<V>() {
+        if A::check_layout::<V>() {
             *depth = Self::LEN;
             Some(A::capacity(data))
         } else {
@@ -250,24 +255,19 @@ unsafe impl<A: TupleElem> Tuple for (A,) {
     }
 
     #[inline]
-    fn check_pick<V>() -> bool {
-        A::check_pick::<V>()
+    unsafe fn take_output<V>(data: &mut Self::Data) -> Output<V> {
+        A::take_output::<V>(data)
     }
 
     #[inline]
-    unsafe fn pick<V>(data: &mut Self::Data) -> Output<V> {
-        A::pick::<V>(data)
-    }
-
-    #[inline]
-    unsafe fn pick_impl<V>(data: &mut Self::Data, depth: u64) -> Output<V> {
+    unsafe fn take_output_impl<V>(data: &mut Self::Data, depth: u64) -> Output<V> {
         debug_assert_eq!(Self::LEN, depth);
-        A::pick(data)
+        A::take_output(data)
     }
 
     #[inline]
-    unsafe fn next(data: &mut Self::Data) -> Self::Item {
-        A::next(data)
+    unsafe fn next_unchecked(data: &mut Self::Data) -> Self::Item {
+        A::next_unchecked(data)
     }
 
     #[inline]
@@ -300,10 +300,15 @@ unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
     }
 
     #[inline]
+    fn check_layout<V>() -> bool {
+        A::check_layout::<V>() || T::check_layout::<V>()
+    }
+
+    #[inline]
     fn max_cap<V>((a, rest): &Self::Data, depth: &mut u64) -> Option<usize> {
         let cap_rest = T::max_cap::<V>(rest, depth);
 
-        if A::check_pick::<V>() {
+        if A::check_layout::<V>() {
             let cap = A::capacity(a);
 
             if let Some(cap_rest) = cap_rest {
@@ -320,30 +325,25 @@ unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
     }
 
     #[inline]
-    fn check_pick<V>() -> bool {
-        A::check_pick::<V>() || T::check_pick::<V>()
-    }
-
-    #[inline]
-    unsafe fn pick<V>(data: &mut Self::Data) -> Output<V> {
+    unsafe fn take_output<V>(data: &mut Self::Data) -> Output<V> {
         let mut depth = 0;
         let val = Self::max_cap::<V>(data, &mut depth);
         debug_assert!(val.is_some());
-        Self::pick_impl(data, depth)
+        Self::take_output_impl(data, depth)
     }
 
     #[inline]
-    unsafe fn pick_impl<V>((a, rest): &mut Self::Data, depth: u64) -> Output<V> {
+    unsafe fn take_output_impl<V>((a, rest): &mut Self::Data, depth: u64) -> Output<V> {
         if Self::LEN == depth {
-            A::pick(a)
+            A::take_output(a)
         } else {
-            T::pick_impl(rest, depth)
+            T::take_output_impl(rest, depth)
         }
     }
 
     #[inline]
-    unsafe fn next((vec, rest): &mut Self::Data) -> Self::Item {
-        (A::next(vec), T::next(rest))
+    unsafe fn next_unchecked((vec, rest): &mut Self::Data) -> Self::Item {
+        (A::next_unchecked(vec), T::next_unchecked(rest))
     }
 
     #[inline]
@@ -377,13 +377,13 @@ pub fn try_zip_with<R: Try, In: Tuple>(
     input: In,
     f: impl FnMut(In::Item) -> R,
 ) -> Result<Vec<R::Ok>, R::Error> {
-    if In::check_pick::<R::Ok>() {
+    if In::check_layout::<R::Ok>() {
         let len = input.min_len();
         let mut input = input.into_data();
 
         ZipWithIter::<_, In> {
             output: unsafe {
-                In::pick::<R::Ok>(&mut input)
+                In::take_output::<R::Ok>(&mut input)
             },
             input,
             init_len: len,
@@ -407,7 +407,7 @@ impl<V, In: Tuple> ZipWithIter<V, In> {
             while let Some(min_len) = self.min_len.checked_sub(1) {
                 self.min_len = min_len;
 
-                let input = In::next(&mut self.input);
+                let input = In::next_unchecked(&mut self.input);
 
                 self.output.ptr.write(f(input)?);
                 self.output.ptr = self.output.ptr.add(1);
