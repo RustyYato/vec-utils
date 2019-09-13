@@ -128,7 +128,7 @@ macro_rules! try_zip_with {
         #[allow(unused_parens)]
         let ($($i),*) = $vec;
 
-        $crate::general_zip::try_zip_with(
+        $crate::try_zip_with(
             $crate::list!(WRAP $($i),*),
             $($move)? |$crate::list!(PLACE $($i),*)| $($work)*
         )
@@ -138,12 +138,15 @@ macro_rules! try_zip_with {
 /// A wrapper around `try_zip_with` for infallible mapping
 #[macro_export]
 macro_rules! zip_with {
-    ($vec:expr, $($move:ident)? |$($i:ident),+ $(,)?| $($work:tt)*) => {{
-        $crate::general_zip::unwrap($crate::try_zip_with!(
+    ($vec:expr, $($move:ident)? |$($i:ident),+ $(,)?| $($work:tt)*) => {
+        match $crate::try_zip_with!(
             $vec, $($move)? |$($i),+|
             Ok::<_, std::convert::Infallible>($($work)*)
-        ))
-    }};
+        ) {
+            Ok(x) => x,
+            Err(x) => match x {}
+        }
+    };
 }
 
 #[doc(hidden)]

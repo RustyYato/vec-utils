@@ -1,20 +1,8 @@
 use super::{Input, Output};
 
+#[doc(hidden)]  
 pub use std::ops::Try;
-
 use std::alloc::Layout;
-
-/// used by the `zip_with` macro
-#[doc(hidden)]
-pub fn unwrap<T: Try>(t: T) -> T::Ok
-where
-    T::Error: Into<std::convert::Infallible>,
-{
-    match t.into_result() {
-        Ok(x) => x,
-        Err(x) => match x.into() {},
-    }
-}
 
 use seal::Seal;
 mod seal {
@@ -89,12 +77,17 @@ pub unsafe trait TupleElem {
     /// Convert to an iterator if we cannot reuse the data-segment
     fn into_iter(self) -> Self::Iter;
 
-    /// If this returns `true` then `take_output` should return `Some`
+    /// If this returns `true` if it is safe to call
+    /// `take_output`
     fn check_layout<V>() -> bool;
 
     /// Try and create a new output data-segment, if the output segment
     /// is created, then it owns it's allocation. So you must not deallocate
     /// the allocation backing `Output<V>`
+    /// 
+    /// # Safety
+    /// 
+    /// `check_layout::<V>` must return true.
     unsafe fn take_output<V>(data: &mut Self::Data) -> Output<V>;
 
     /// Get the next_unchecked element
@@ -109,7 +102,8 @@ pub unsafe trait TupleElem {
     ///
     /// # Safety
     ///
-    /// This function should only be called once
+    /// This function should only be called once, and 
+    /// `data` should not be used again
     unsafe fn drop_rest(data: &mut Self::Data, len: usize);
 }
 

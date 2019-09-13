@@ -4,9 +4,9 @@ use std::ops::Try;
 
 use std::alloc::Layout;
 
-/// A module for generalized mapping with an arbitrary number
-/// of input vectors
-pub mod general_zip;
+mod general_zip;
+
+pub use general_zip::*;
 
 /// A type that contains useful meta-data about a
 /// the Vec<_> that it was created from
