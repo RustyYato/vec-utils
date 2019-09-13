@@ -50,10 +50,10 @@ macro_rules! defer {
 ///     zip_with!(a, move |a| a + b)
 /// }
 /// ```
-
 #[macro_export]
 macro_rules! try_zip_with {
     ($vec:expr, $($move:ident)? |$($i:ident),+ $(,)?| $($work:tt)*) => {{
+        #[allow(unused_parens)]
         let ($($i),*) = $vec;
 
         $crate::general_zip::try_zip_with(

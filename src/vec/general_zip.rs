@@ -30,6 +30,8 @@ mod seal {
 ///
 /// i.e. it is only safe to use impls from this crate
 pub unsafe trait Tuple: Seal {
+    const LEN: u64;
+    
     type Item;
     type Data;
     type Iter: Iterator<Item = Self::Item>;
@@ -38,24 +40,19 @@ pub unsafe trait Tuple: Seal {
 
     fn min_len(&self) -> usize;
 
+    fn max_cap<V>(data: &Self::Data, depth: &mut u64) -> Option<usize>;
+
     fn into_iter(self) -> Self::Iter;
 
-    fn check_pick<V>(&self) -> bool;
+    fn check_pick<V>() -> bool;
 
-    fn pick<V>(data: &mut Self::Data) -> Option<Output<V>>;
+    unsafe fn pick<V>(data: &mut Self::Data) -> Output<V>;
 
-    unsafe fn pick_impl<V>(_: &mut Self::Data) -> Option<OutputData<V>>;
+    unsafe fn pick_impl<V>(_: &mut Self::Data, min_cap: u64) -> Output<V>;
 
     unsafe fn next(data: &mut Self::Data) -> Self::Item;
 
     unsafe fn drop_rest(data: &mut Self::Data, len: usize);
-}
-
-/// An implementation detail of `Tuple::parse_impl` that must be exposed to a public api
-pub struct OutputData<T> {
-    output: Output<T>,
-    pick: unsafe fn(*mut ()),
-    ptr: *mut (),
 }
 
 /// This trait abstracts away elements of the input stream
@@ -92,30 +89,13 @@ pub unsafe trait TupleElem {
     /// Convert to an iterator if we cannot reuse the data-segment
     fn into_iter(self) -> Self::Iter;
 
-    /// If this returns `true` then `try_pick` should return `Some`
-    fn check_pick<V>(&self) -> bool;
+    /// If this returns `true` then `pick` should return `Some`
+    fn check_pick<V>() -> bool;
 
-    /// Try and create a new output data-segment, but
-    /// not commit to the data-segment.
-    ///
-    /// # Safety
-    ///
-    /// `try_pick` will try to create an output data-segment
-    /// but even if it creates one, it must not commit to it
-    /// until `do_pick` is called, for example, you should
-    /// still be responsible for deallocating the data-segment
-    /// if `do_pick` is *not* called
-    unsafe fn try_pick<V>(data: &mut Self::Data) -> Option<Output<V>>;
-
-    /// Commit to the data-segment
-    ///
-    /// By commiting to the data-segment, you are not allowed to deallocate
-    /// the memory buffer that `Output<V>` resides in.
-    ///
-    /// # Safety
-    ///
-    /// * `try_pick` must have been called and returned `Some` before `do_pick```
-    unsafe fn do_pick(_: &mut Self::Data);
+    /// Try and create a new output data-segment, if the output segment
+    /// is created, then it owns it's allocation. So you must not deallocate
+    /// the allocation backing `Output<V>`
+    unsafe fn pick<V>(data: &mut Self::Data) -> Output<V>;
 
     /// Get the next element
     ///
@@ -131,11 +111,6 @@ pub unsafe trait TupleElem {
     ///
     /// This function should only be called once
     unsafe fn drop_rest(data: &mut Self::Data, len: usize);
-}
-
-#[inline]
-unsafe fn do_pick_erased<A: TupleElem>(ptr: *mut ()) {
-    A::do_pick(&mut *(ptr as *mut A::Data))
 }
 
 unsafe impl<A: TupleElem> TupleElem for (A,) {
@@ -164,18 +139,13 @@ unsafe impl<A: TupleElem> TupleElem for (A,) {
     }
 
     #[inline]
-    fn check_pick<V>(&self) -> bool {
-        self.0.check_pick::<V>()
+    fn check_pick<V>() -> bool {
+        A::check_pick::<V>()
     }
 
     #[inline]
-    unsafe fn try_pick<V>(data: &mut Self::Data) -> Option<Output<V>> {
-        A::try_pick(data)
-    }
-
-    #[inline]
-    unsafe fn do_pick(data: &mut Self::Data) {
-        A::do_pick(data)
+    unsafe fn pick<V>(data: &mut Self::Data) -> Output<V> {
+        A::pick(data)
     }
 
     #[inline]
@@ -215,22 +185,16 @@ unsafe impl<A> TupleElem for Vec<A> {
     }
 
     #[inline]
-    fn check_pick<V>(&self) -> bool {
+    fn check_pick<V>() -> bool {
         Layout::new::<A>() == Layout::new::<V>()
     }
 
     #[inline]
-    unsafe fn try_pick<V>(data: &mut Self::Data) -> Option<Output<V>> {
-        if Layout::new::<A>() == Layout::new::<V>() {
-            Some(Output::new(data.start as *mut V, data.cap))
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    unsafe fn do_pick(data: &mut Self::Data) {
+    unsafe fn pick<V>(data: &mut Self::Data) -> Output<V> {
+        debug_assert!(Layout::new::<A>() == Layout::new::<V>());
+        
         data.drop_alloc = false;
+        Output::new(data.start as *mut V, data.cap)
     }
 
     #[inline]
@@ -254,6 +218,8 @@ unsafe impl<A> TupleElem for Vec<A> {
 
 impl<A: TupleElem> Seal for (A,) {}
 unsafe impl<A: TupleElem> Tuple for (A,) {
+    const LEN: u64 = 0;
+
     type Item = A::Item;
     type Data = A::Data;
     type Iter = A::Iter;
@@ -274,28 +240,29 @@ unsafe impl<A: TupleElem> Tuple for (A,) {
     }
 
     #[inline]
-    fn check_pick<V>(&self) -> bool {
-        self.0.check_pick::<V>()
-    }
-
-    #[inline]
-    fn pick<V>(data: &mut Self::Data) -> Option<Output<V>> {
-        unsafe {
-            let output = A::try_pick::<V>(data)?;
-            A::do_pick(data);
-            Some(output)
+    fn max_cap<V>(data: &Self::Data, depth: &mut u64) -> Option<usize> {
+        if A::check_pick::<V>() {
+            *depth = Self::LEN;
+            Some(A::capacity(data))
+        } else {
+            None
         }
     }
 
     #[inline]
-    unsafe fn pick_impl<V>(data: &mut Self::Data) -> Option<OutputData<V>> {
-        let output = A::try_pick(data)?;
+    fn check_pick<V>() -> bool {
+        A::check_pick::<V>()
+    }
 
-        Some(OutputData {
-            output,
-            pick: do_pick_erased::<A>,
-            ptr: data as *mut A::Data as *mut (),
-        })
+    #[inline]
+    unsafe fn pick<V>(data: &mut Self::Data) -> Output<V> {
+        A::pick::<V>(data)
+    }
+
+    #[inline]
+    unsafe fn pick_impl<V>(data: &mut Self::Data, depth: u64) -> Output<V> {
+        debug_assert_eq!(Self::LEN, depth);
+        A::pick(data)
     }
 
     #[inline]
@@ -311,6 +278,8 @@ unsafe impl<A: TupleElem> Tuple for (A,) {
 
 impl<A: TupleElem, T: Tuple> Seal for (A, T) {}
 unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
+    const LEN: u64 = T::LEN + 1;
+    
     type Item = (A::Item, T::Item);
     type Data = (A::Data, T::Data);
     type Iter = std::iter::Zip<A::Iter, T::Iter>;
@@ -331,40 +300,44 @@ unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
     }
 
     #[inline]
-    fn check_pick<V>(&self) -> bool {
-        self.0.check_pick::<V>() || self.1.check_pick::<V>()
-    }
+    fn max_cap<V>((a, rest): &Self::Data, depth: &mut u64) -> Option<usize> {
+        let cap_rest = T::max_cap::<V>(rest, depth);
 
-    #[inline]
-    fn pick<V>(data: &mut Self::Data) -> Option<Output<V>> {
-        unsafe {
-            Self::pick_impl(data).map(|OutputData { output, pick, ptr }| {
-                pick(ptr);
+        if A::check_pick::<V>() {
+            let cap = A::capacity(a);
 
-                output
-            })
+            if let Some(cap_rest) = cap_rest {
+                if cap_rest > cap {
+                    return Some(cap_rest)
+                }
+            }
+
+            *depth = Self::LEN;
+            Some(cap)
+        } else {
+            cap_rest
         }
     }
 
     #[inline]
-    unsafe fn pick_impl<V>((a, rest): &mut Self::Data) -> Option<OutputData<V>> {
-        let rest_pick = T::pick_impl::<V>(rest);
+    fn check_pick<V>() -> bool {
+        A::check_pick::<V>() || T::check_pick::<V>()
+    }
 
-        match A::try_pick::<V>(a) {
-            None => rest_pick,
-            Some(output) => {
-                if let Some(rest_output) = rest_pick {
-                    if output.cap < rest_output.output.cap {
-                        return Some(rest_output);
-                    }
-                }
+    #[inline]
+    unsafe fn pick<V>(data: &mut Self::Data) -> Output<V> {
+        let mut depth = 0;
+        let val = Self::max_cap::<V>(data, &mut depth);
+        debug_assert!(val.is_some());
+        Self::pick_impl(data, depth)
+    }
 
-                Some(OutputData {
-                    output,
-                    pick: do_pick_erased::<A>,
-                    ptr: a as *mut _ as *mut (),
-                })
-            }
+    #[inline]
+    unsafe fn pick_impl<V>((a, rest): &mut Self::Data, depth: u64) -> Output<V> {
+        if Self::LEN == depth {
+            A::pick(a)
+        } else {
+            T::pick_impl(rest, depth)
         }
     }
 
@@ -386,7 +359,7 @@ unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
 struct ZipWithIter<V, In: Tuple> {
     // This left buffer is the one that will be reused
     // to write the output into
-    out: Output<V>,
+    output: Output<V>,
 
     // We will only read from this buffer
     input: In::Data,
@@ -396,7 +369,7 @@ struct ZipWithIter<V, In: Tuple> {
     // the length of the vectors that must be traversed
     min_len: usize,
 
-    should_free: bool,
+    should_free_output: bool,
 }
 
 /// Does the work of the `try_zip_with` or `zip_with` macros.
@@ -404,21 +377,20 @@ pub fn try_zip_with<R: Try, In: Tuple>(
     input: In,
     f: impl FnMut(In::Item) -> R,
 ) -> Result<Vec<R::Ok>, R::Error> {
-    if input.check_pick::<R::Ok>() {
+    if In::check_pick::<R::Ok>() {
         let len = input.min_len();
         let mut input = input.into_data();
 
-        match In::pick::<R::Ok>(&mut input) {
-            Some(out) => ZipWithIter::<_, In> {
-                out,
-                input,
-                init_len: len,
-                min_len: len,
-                should_free: true,
-            }
-            .try_into_vec(f),
-            None => unsafe { std::hint::unreachable_unchecked() },
+        ZipWithIter::<_, In> {
+            output: unsafe {
+                In::pick::<R::Ok>(&mut input)
+            },
+            input,
+            init_len: len,
+            min_len: len,
+            should_free_output: true,
         }
+        .try_into_vec(f)
     } else {
         input.into_iter().map(f).map(R::into_result).collect()
     }
@@ -437,21 +409,21 @@ impl<V, In: Tuple> ZipWithIter<V, In> {
 
                 let input = In::next(&mut self.input);
 
-                self.out.ptr.write(f(input)?);
-                self.out.ptr = self.out.ptr.add(1);
+                self.output.ptr.write(f(input)?);
+                self.output.ptr = self.output.ptr.add(1);
             }
         }
 
         // We don't want to drop `self` if dropping the excess elements panics
         // as that could lead to double drops
-        self.should_free = false;
+        self.should_free_output = false;
 
         unsafe {
             // create the vector now, so that if we panic in drop, we don't leak it
             Ok(Vec::from_raw_parts(
-                self.out.start as *mut V,
+                self.output.start as *mut V,
                 self.init_len,
-                self.out.cap,
+                self.output.cap,
             ))
         }
     }
@@ -460,9 +432,9 @@ impl<V, In: Tuple> ZipWithIter<V, In> {
 impl<V, In: Tuple> Drop for ZipWithIter<V, In> {
     fn drop(&mut self) {
         let &mut ZipWithIter {
-            ref mut out,
+            ref mut output,
             ref mut input,
-            should_free,
+            should_free_output,
             init_len,
             min_len,
             ..
@@ -471,9 +443,9 @@ impl<V, In: Tuple> Drop for ZipWithIter<V, In> {
         let len = init_len - min_len;
 
         defer! {
-            if should_free {
+            if should_free_output {
                 unsafe {
-                    Vec::from_raw_parts(out.start, len - 1, out.cap);
+                    Vec::from_raw_parts(output.start, len - 1, output.cap);
                 }
             }
         }

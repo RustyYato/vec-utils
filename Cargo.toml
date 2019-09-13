@@ -14,3 +14,10 @@ keywords = ['vec', 'utilities']
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+
+[dev-dependencies]
+criterion = '0.3.0'
+
+[[bench]]
+name = "vec"
+harness = false
