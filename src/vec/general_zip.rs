@@ -4,6 +4,8 @@ pub use std::ops::Try;
 
 use std::alloc::Layout;
 
+/// used by the `zip_with` macro
+#[doc(hidden)]
 pub fn unwrap<T: Try>(t: T) -> T::Ok
 where
     T::Error: Into<std::convert::Infallible>,
@@ -38,7 +40,7 @@ pub unsafe trait Tuple: Seal {
 
     fn into_data(self) -> Self::Data;
 
-    fn min_len(&self) -> usize;
+    fn remaining_len(&self) -> usize;
 
     fn into_iter(self) -> Self::Iter;
 
@@ -235,7 +237,7 @@ unsafe impl<A: TupleElem> Tuple for (A,) {
     }
 
     #[inline]
-    fn min_len(&self) -> usize {
+    fn remaining_len(&self) -> usize {
         self.0.len()
     }
 
@@ -295,8 +297,8 @@ unsafe impl<A: TupleElem, T: Tuple> Tuple for (A, T) {
     }
 
     #[inline]
-    fn min_len(&self) -> usize {
-        self.0.len().min(self.1.min_len())
+    fn remaining_len(&self) -> usize {
+        self.0.len().min(self.1.remaining_len())
     }
 
     #[inline]
@@ -364,10 +366,11 @@ struct ZipWithIter<V, In: Tuple> {
     // We will only read from this buffer
     input: In::Data,
 
-    // the length of the output that has been written to
-    init_len: usize,
-    // the length of the vectors that must be traversed
-    min_len: usize,
+    // the initial length of the input
+    initial_len: usize,
+
+    // the remaing length of the input
+    remaining_len: usize,
 
     should_free_output: bool,
 }
@@ -378,7 +381,7 @@ pub fn try_zip_with<R: Try, In: Tuple>(
     f: impl FnMut(In::Item) -> R,
 ) -> Result<Vec<R::Ok>, R::Error> {
     if In::check_layout::<R::Ok>() {
-        let len = input.min_len();
+        let len = input.remaining_len();
         let mut input = input.into_data();
 
         ZipWithIter::<_, In> {
@@ -386,8 +389,8 @@ pub fn try_zip_with<R: Try, In: Tuple>(
                 In::take_output::<R::Ok>(&mut input)
             },
             input,
-            init_len: len,
-            min_len: len,
+            initial_len: len,
+            remaining_len: len,
             should_free_output: true,
         }
         .try_into_vec(f)
@@ -404,8 +407,8 @@ impl<V, In: Tuple> ZipWithIter<V, In> {
         // this does a pointer walk and reads from left and right in lock-step
         // then passes those values to the function to be processed
         unsafe {
-            while let Some(min_len) = self.min_len.checked_sub(1) {
-                self.min_len = min_len;
+            while let Some(remaining_len) = self.remaining_len.checked_sub(1) {
+                self.remaining_len = remaining_len;
 
                 let input = In::next_unchecked(&mut self.input);
 
@@ -422,7 +425,7 @@ impl<V, In: Tuple> ZipWithIter<V, In> {
             // create the vector now, so that if we panic in drop, we don't leak it
             Ok(Vec::from_raw_parts(
                 self.output.start as *mut V,
-                self.init_len,
+                self.initial_len,
                 self.output.cap,
             ))
         }
@@ -435,23 +438,23 @@ impl<V, In: Tuple> Drop for ZipWithIter<V, In> {
             ref mut output,
             ref mut input,
             should_free_output,
-            init_len,
-            min_len,
+            initial_len,
+            remaining_len,
             ..
         } = self;
 
-        let len = init_len - min_len;
+        let initialized_len = initial_len - remaining_len;
 
         defer! {
             if should_free_output {
                 unsafe {
-                    Vec::from_raw_parts(output.start, len - 1, output.cap);
+                    Vec::from_raw_parts(output.start, initialized_len - 1, output.cap);
                 }
             }
         }
 
         unsafe {
-            In::drop_rest(input, len);
+            In::drop_rest(input, initialized_len);
         }
     }
 }
