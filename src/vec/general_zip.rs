@@ -19,7 +19,7 @@ mod seal {
 
         fn remaining_len(&self) -> usize;
 
-        fn into_iter(self) -> Self::Iter;
+        fn into_iterator(self) -> Self::Iter;
 
         fn check_layout<V>() -> bool;
 
@@ -75,7 +75,7 @@ pub unsafe trait TupleElem {
     fn into_data(self) -> Self::Data;
 
     /// Convert to an iterator if we cannot reuse the data-segment
-    fn into_iter(self) -> Self::Iter;
+    fn into_iterator(self) -> Self::Iter;
 
     /// If this returns `true` if it is safe to call
     /// `take_output`
@@ -128,8 +128,8 @@ unsafe impl<A: TupleElem> TupleElem for (A,) {
     }
 
     #[inline]
-    fn into_iter(self) -> Self::Iter {
-        self.0.into_iter()
+    fn into_iterator(self) -> Self::Iter {
+        self.0.into_iterator()
     }
 
     #[inline]
@@ -174,8 +174,8 @@ unsafe impl<A> TupleElem for Vec<A> {
     }
 
     #[inline]
-    fn into_iter(self) -> Self::Iter {
-        IntoIterator::into_iter(self)
+    fn into_iterator(self) -> Self::Iter {
+        self.into_iter()
     }
 
     #[inline]
@@ -224,8 +224,8 @@ unsafe impl<A: TupleElem> Seal for (A,) {
     }
 
     #[inline]
-    fn into_iter(self) -> Self::Iter {
-        self.0.into_iter()
+    fn into_iterator(self) -> Self::Iter {
+        self.0.into_iterator()
     }
 
     #[inline]
@@ -284,8 +284,8 @@ unsafe impl<A: TupleElem, T: Seal> Seal for (A, T) {
     }
 
     #[inline]
-    fn into_iter(self) -> Self::Iter {
-        self.0.into_iter().zip(self.1.into_iter())
+    fn into_iterator(self) -> Self::Iter {
+        self.0.into_iterator().zip(self.1.into_iterator())
     }
 
     #[inline]
@@ -368,7 +368,7 @@ struct ZipWithIter<V, In: Tuple> {
 }
 
 /// Does the work of the `try_zip_with` or `zip_with` macros.
-pub fn try_zip_with<R: Try, In: Tuple>(
+pub fn try_zip_with_impl<R: Try, In: Tuple>(
     input: In,
     f: impl FnMut(In::Item) -> R,
 ) -> Result<Vec<R::Ok>, R::Error> {
@@ -385,7 +385,7 @@ pub fn try_zip_with<R: Try, In: Tuple>(
         }
         .try_into_vec(f)
     } else {
-        input.into_iter().map(f).map(R::into_result).collect()
+        input.into_iterator().map(f).map(R::into_result).collect()
     }
 }
 
