@@ -1,8 +1,8 @@
+use std::alloc::Layout;
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
-use std::ops::Try;
 
-use std::alloc::Layout;
+use super::{r#try, Try};
 
 mod general_zip;
 
@@ -214,7 +214,7 @@ impl<T, U> MapIter<T, U> {
         // does a pointer walk, easy for LLVM to optimize
         while self.init_len < self.data.len {
             unsafe {
-                let value = f(self.data.ptr.read())?;
+                let value = r#try!(f(self.data.ptr.read()));
 
                 (self.data.ptr as *mut U).write(value);
 
@@ -303,7 +303,7 @@ impl<T, U, V> ZipWithIter<T, U, V> {
                 self.left.ptr = self.left.ptr.add(1);
                 self.right.ptr = self.right.ptr.add(1);
 
-                let value = f(left.read(), right.read())?;
+                let value = r#try!(f(left.read(), right.read()));
 
                 out.write(value);
             }

@@ -1,8 +1,6 @@
-use super::{Input, Output};
-
-#[doc(hidden)]  
-pub use std::ops::Try;
 use std::alloc::Layout;
+
+use super::{r#try, Input, Output, Try};
 
 use seal::Seal;
 mod seal {
@@ -402,7 +400,7 @@ impl<V, In: Tuple> ZipWithIter<V, In> {
 
                 let input = In::next_unchecked(&mut self.input);
 
-                self.output.ptr.write(f(input)?);
+                self.output.ptr.write(r#try!(f(input)));
                 self.output.ptr = self.output.ptr.add(1);
             }
 
