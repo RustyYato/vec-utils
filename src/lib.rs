@@ -1,4 +1,3 @@
-#![feature(try_trait, alloc_layout_extra)]
 #![forbid(missing_docs)]
 
 /*!
@@ -172,7 +171,9 @@ impl<F: FnOnce()> Drop for OnDrop<F> {
 }
 
 mod boxed;
+mod r#try;
 mod vec;
 
 pub use self::boxed::*;
+pub use self::r#try::*;
 pub use self::vec::*;
