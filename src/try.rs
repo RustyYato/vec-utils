@@ -1,3 +1,5 @@
+use std::task::Poll;
+
 /// A stable version of [`core::ops::Try`].
 pub trait Try {
     /// The type of this value when viewed as successful.
@@ -50,6 +52,52 @@ impl<T> Try for Option<T> {
     }
     fn from_ok(v: <Self as Try>::Ok) -> Self {
         Some(v)
+    }
+}
+
+impl<T, E> Try for Poll<Option<Result<T, E>>> {
+    type Ok = Poll<Option<T>>;
+    type Error = E;
+
+    fn into_result(self) -> Result<<Self as Try>::Ok, <Self as Try>::Error> {
+        match self {
+            Poll::Ready(Some(Ok(x))) => Ok(Poll::Ready(Some(x))),
+            Poll::Ready(Some(Err(e))) => Err(e),
+            Poll::Ready(None) => Ok(Poll::Ready(None)),
+            Poll::Pending => Ok(Poll::Pending),
+        }
+    }
+
+    fn from_error(v: <Self as Try>::Error) -> Self {
+        Poll::Ready(Some(Err(v)))
+    }
+
+    fn from_ok(v: <Self as Try>::Ok) -> Self {
+        v.map(|x| x.map(Ok))
+    }
+}
+
+impl<T, E> Try for Poll<Result<T, E>> {
+    type Ok = Poll<T>;
+    type Error = E;
+
+    #[inline]
+    fn into_result(self) -> Result<Self::Ok, Self::Error> {
+        match self {
+            Poll::Ready(Ok(x)) => Ok(Poll::Ready(x)),
+            Poll::Ready(Err(e)) => Err(e),
+            Poll::Pending => Ok(Poll::Pending),
+        }
+    }
+
+    #[inline]
+    fn from_error(e: Self::Error) -> Self {
+        Poll::Ready(Err(e))
+    }
+
+    #[inline]
+    fn from_ok(x: Self::Ok) -> Self {
+        x.map(Ok)
     }
 }
 
